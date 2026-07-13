@@ -5,7 +5,7 @@ const MAX_ROWS = 500;
 
 const SYSTEM = `You are Hermes, embedded in an Excel task pane. Chat naturally and concisely.
 
-When a message starts with a bracketed [Active sheet ...] note, that is the current sheet's data — use it. The data is only re-sent when it changes, so for follow-up questions rely on the data already shown earlier in the conversation.
+When a message starts with a bracketed [Active sheet ...] note, that is the current sheet's data — use it. If a [Selected range ...] note is present, the user has highlighted specific cell(s); operate on that selection by default unless they name a different range. The data is only re-sent when it changes, so for follow-up questions rely on the data already shown earlier in the conversation.
 
 When the user wants to modify the workbook, append EXACTLY ONE fenced block at the very end of your reply:
 \`\`\`json
@@ -32,6 +32,11 @@ Office.onReady(() => {
   document.getElementById("newchat").onclick = newChat;
   document.getElementById("prompt").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
+  });
+  const _prompt = document.getElementById("prompt");
+  _prompt.addEventListener("input", () => {
+    _prompt.style.height = "auto";
+    _prompt.style.height = Math.min(_prompt.scrollHeight, 120) + "px";
   });
 });
 
@@ -85,20 +90,36 @@ async function getSnapshot() {
   return Excel.run(async (context) => {
     const sheet = context.workbook.worksheets.getActiveWorksheet();
     sheet.load("name");
+
+    // Read the user's current selection (single cell or range)
+    let selection = null;
+    try {
+      const sel = context.workbook.getSelectedRange();
+      sel.load(["address", "values"]);
+      await context.sync();
+      if (sel.address) selection = { address: sel.address, values: sel.values };
+    } catch (_) { /* no selection or multi-area — ignore */ }
+
     const used = sheet.getUsedRangeOrNullObject(true); // valuesOnly
     used.load(["address", "values"]);
     await context.sync();
-    if (used.isNullObject) return { name: sheet.name, address: null, values: [], truncated: false };
+    if (used.isNullObject) return { name: sheet.name, address: null, values: [], truncated: false, selection };
     let values = used.values;
     let truncated = false;
     if (values.length > MAX_ROWS) { values = values.slice(0, MAX_ROWS); truncated = true; }
-    return { name: sheet.name, address: used.address, values, truncated };
+    return { name: sheet.name, address: used.address, values, truncated, selection };
   });
 }
 
 function dataNote(s) {
-  if (!s.address) return `[Active sheet "${s.name}" is empty.]`;
-  return `[Active sheet "${s.name}", range ${s.address}${s.truncated ? ` (first ${MAX_ROWS} rows)` : ""}. Current data:]\n${JSON.stringify(s.values)}`;
+  let head;
+  if (!s.address) head = `[Active sheet "${s.name}" is empty.]`;
+  else head = `[Active sheet "${s.name}", range ${s.address}${s.truncated ? ` (first ${MAX_ROWS} rows)` : ""}. Current data:]\n${JSON.stringify(s.values)}`;
+
+  if (s.selection) {
+    head += `\n\n[Selected range ${s.selection.address}. Current selection values:]\n${JSON.stringify(s.selection.values)}`;
+  }
+  return head;
 }
 
 function signature(s) {
