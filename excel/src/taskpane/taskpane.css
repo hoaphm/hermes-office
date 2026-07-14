@@ -1,3 +1,6 @@
+/* Base visual language (colors, spacing, msg bubbles, composer) is shared by
+   eye with the Word taskpane's inline <style> block in
+   word/src/taskpane/taskpane.html — keep the two in sync when tweaking. */
 :root {
   --bg: #ffffff;
   --bg-secondary: #f5f5f7;

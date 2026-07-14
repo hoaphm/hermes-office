@@ -1,0 +1,10 @@
+{
+  "name": "hermes-office",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cd word && npm run build && cd ../excel && npm run build",
+    "test": "node --test",
+    "lint": "cd word && npm run lint && cd ../excel && npm run lint"
+  }
+}

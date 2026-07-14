@@ -1,6 +1,13 @@
 /* global Office, Word */
 
 import { askHermes } from "../shared/hermes.js";
+// Pure helpers deduped with the Excel taskpane via the repo-root shared/
+// folder (no npm workspace between the two add-ins) — see shared/parsers.js.
+import { columnIndexToLetters, columnLettersToIndex, parseEdits, parseTableChanges } from "../../../shared/parsers.js";
+
+// Full-document mode sends the whole open document to Hermes as context;
+// cap it so a large file doesn't blow up the request payload / token budget.
+const MAX_FULLDOC_CHARS = 30000;
 
 Office.onReady().then(() => {
   const log = document.getElementById("log");
@@ -131,6 +138,11 @@ Office.onReady().then(() => {
     pinnedSelectionText = await readSelectedText();
   }
 
+  // Note: this handler is never explicitly removed (no
+  // context.document.onSelectionChanged.remove call anywhere). That's
+  // intentional — the taskpane's JS realm is torn down and reloaded fresh
+  // every time the user switches/opens a document, so there is no previous
+  // handler left dangling to leak.
   function registerSelectionChangedHandler() {
     Word.run(async (context) => {
       context.document.onSelectionChanged.add(onSelectionChangedHandler);
@@ -219,28 +231,6 @@ Office.onReady().then(() => {
     if (fromParent) return fromParent;
 
     return null;
-  }
-
-  // Base-26 column index (0-based) <-> letters, e.g. 0 -> "A", 25 -> "Z",
-  // 26 -> "AA". Plain `String.fromCharCode(65 + i)` only covers single
-  // letters and silently wraps/collides past column Z.
-  function columnIndexToLetters(index) {
-    let n = index + 1;
-    let letters = "";
-    while (n > 0) {
-      const rem = (n - 1) % 26;
-      letters = String.fromCharCode(65 + rem) + letters;
-      n = Math.floor((n - 1) / 26);
-    }
-    return letters;
-  }
-
-  function columnLettersToIndex(letters) {
-    let n = 0;
-    for (let i = 0; i < letters.length; i++) {
-      n = n * 26 + (letters.charCodeAt(i) - 64);
-    }
-    return n - 1;
   }
 
   function formatTablePreview(tbl) {
@@ -335,16 +325,20 @@ ${data.text}`;
         return;
       }
 
+      let docText = selectionData.text || "";
+      const fulldocTruncated = selectionData.type === "fulldoc" && docText.length > MAX_FULLDOC_CHARS;
+      if (fulldocTruncated) {
+        docText = docText.slice(0, MAX_FULLDOC_CHARS) + `\n\n[... còn ${docText.length - MAX_FULLDOC_CHARS} ký tự nữa ...]`;
+      }
+      const displayData = { ...selectionData, text: docText };
+
       const statusText = selectionData.type === "fulldoc"
         ? `${selectionData.text.length} chars from full document`
         : (selectionData.text ? `${selectionData.text.length} chars selected` : "Table selected");
-      setStatus(statusText + " — Hermes is thinking…");
-
-      let docText = selectionData.text || "";
-      if (selectionData.type === "fulldoc" && docText.length > 30000) {
-        docText = docText.slice(0, 30000) + `\n\n[... còn ${docText.length - 30000} ký tự nữa ...]`;
-      }
-      const displayData = { ...selectionData, text: docText };
+      const truncationWarning = fulldocTruncated
+        ? ` ⚠ Tài liệu vượt quá ${MAX_FULLDOC_CHARS} ký tự — chỉ ${MAX_FULLDOC_CHARS} ký tự đầu được gửi tới Hermes.`
+        : "";
+      setStatus(statusText + " — Hermes is thinking…" + truncationWarning);
 
       const sysPrompt = buildSystemPrompt(displayData);
       const payload = [
@@ -411,41 +405,6 @@ ${data.text}`;
       askBtn.disabled = false;
       input.focus();
     }
-  }
-
-  function parseTableChanges(reply) {
-    const fenced = reply.match(/```json\s*([\s\S]*?)```/i);
-    const jsonStr = fenced ? fenced[1] : reply.match(/\{"cells"\s*:\s*\[[\s\S]*?\]\s*\}/);
-    if (!jsonStr) return [];
-    try {
-      const obj = JSON.parse(fenced ? fenced[1] : jsonStr[0]);
-      return obj.cells || [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function parseEdits(reply) {
-    // Accept either a fenced ```json block OR a bare { "edits": [...] } object
-    // that may be embedded in prose. Try fenced first, then a loose match.
-    const candidates = [];
-    const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenced) candidates.push(fenced[1]);
-    const bare = reply.match(/\{[^{}]*"edits"\s*:\s*\[[\s\S]*?\]\s*\}/);
-    if (bare) candidates.push(bare[0]);
-
-    for (const c of candidates) {
-      try {
-        const obj = JSON.parse(c.trim());
-        const edits = obj && obj.edits;
-        if (Array.isArray(edits)) {
-          return edits
-            .filter((e) => e && typeof e.find === "string" && e.find.length > 0)
-            .map((e) => ({ find: e.find, replace: e.replace === undefined ? "" : String(e.replace) }));
-        }
-      } catch (_) { /* try next candidate */ }
-    }
-    return [];
   }
 
   function cellRefToPosition(cellRef, rowCount, columnCount) {
@@ -580,6 +539,10 @@ ${data.text}`;
     preview.innerHTML = "";
     applyBtn.style.display = "none";
     markRedWrap.style.display = "none";
+    // Reset to checked so a new chat always starts from the predictable
+    // default rather than carrying over whatever the user last toggled.
+    const markRedEl = document.getElementById("markRed");
+    if (markRedEl) markRedEl.checked = true;
     setStatus("New chat. Select text and ask me to edit it.");
   }
 

@@ -5,6 +5,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Hermes — Word</title>
+  <!-- Kept inline (not extracted to a shared/ stylesheet) so this taskpane has
+       zero extra network requests. The Excel taskpane's equivalent base
+       styles live in excel/src/taskpane/taskpane.css — keep the two in sync
+       by eye when tweaking shared visual language (colors, spacing, msg
+       bubbles, etc). -->
   <style>
     :root {
       --bg: #ffffff;
