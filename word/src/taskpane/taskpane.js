@@ -7,6 +7,7 @@ Office.onReady().then(() => {
   const input = document.getElementById("prompt");
   const askBtn = document.getElementById("ask");
   const applyBtn = document.getElementById("apply");
+  const markRedWrap = document.getElementById("markRedWrap");
   const newChatBtn = document.getElementById("newchat");
   const statusEl = document.getElementById("status");
   const preview = document.getElementById("preview");
@@ -322,6 +323,7 @@ ${data.text}`;
     setStatus("Reading document…");
     lastProposal = null;
     applyBtn.style.display = "none";
+    markRedWrap.style.display = "none";
     preview.innerHTML = "";
 
     try {
@@ -363,6 +365,7 @@ ${data.text}`;
             `<div class="act">Set ${escapeHtml(c.cell)} → "${escapeHtml(c.value)}"</div>`
           ).join("");
           applyBtn.style.display = "block";
+          markRedWrap.style.display = "flex";
         }
       } else if (selectionData.type === "text") {
         lastProposal = { type: "text", text: reply };
@@ -371,6 +374,7 @@ ${data.text}`;
           <div class="msg bot">${escapeHtml(reply).replace(/\n/g, "<br>")}</div>
         `;
         applyBtn.style.display = "block";
+        markRedWrap.style.display = "flex";
       } else if (selectionData.type === "fulldoc") {
         // Prefer inline edits (fix spelling etc.) — only the wrong spots change.
         const edits = parseEdits(reply);
@@ -380,16 +384,19 @@ ${data.text}`;
             `<div class="act">"${escapeHtml(e.find)}" → "${escapeHtml(e.replace)}"</div>`
           ).join("") + `<div class="act">Áp dụng cho mọi vị trí (giữ nguyên định dạng).</div>`;
           applyBtn.style.display = "block";
+          markRedWrap.style.display = "flex";
         } else if (reply.trim().length > selectionData.text.length * 0.5) {
           // Looks like a full rewrite / translation → replace whole doc.
           lastProposal = { type: "fulldoc-full", text: reply };
           preview.innerHTML = `<div class="act">Sẽ THAY THẾ TOÀN BỘ văn bản bằng kết quả trên.</div>`;
           applyBtn.style.display = "block";
+          markRedWrap.style.display = "flex";
         } else {
           // Plain answer / review — nothing to apply.
           lastProposal = null;
           preview.innerHTML = `<div class="act">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div>`;
           applyBtn.style.display = "none";
+          markRedWrap.style.display = "none";
         }
       }
 
@@ -456,6 +463,11 @@ ${data.text}`;
   async function applyEdit() {
     if (!lastProposal) return;
 
+    // Đọc trạng thái toggle "đánh dấu đỏ" một lần — nếu bật, mọi đoạn văn bản
+    // được chèn/sửa trong lượt Apply này sẽ được tô màu đỏ để dễ nhận biết.
+    const markRedEl = document.getElementById("markRed");
+    const markRed = markRedEl && markRedEl.checked;
+
     setStatus("Applying…");
     let editStats = null;
     try {
@@ -473,7 +485,8 @@ ${data.text}`;
             const pos = cellRefToPosition(change.cell, table.rowCount, table.columnCount);
             if (!pos) continue;
             const cell = table.getCell(pos.row, pos.col);
-            cell.body.getRange().insertText(String(change.value), "Replace");
+            const inserted = cell.body.getRange().insertText(String(change.value), "Replace");
+            if (markRed) inserted.font.color = "#FF0000";
           }
           await context.sync();
         });
@@ -491,7 +504,10 @@ ${data.text}`;
               const ranges = context.document.body.search(edit.find, { matchCase: false });
               ranges.load("items");
               await context.sync();
-              ranges.items.forEach((r) => r.insertText(String(edit.replace), "Replace"));
+              ranges.items.forEach((r) => {
+                const inserted = r.insertText(String(edit.replace), "Replace");
+                if (markRed) inserted.font.color = "#FF0000";
+              });
               await context.sync();
               applied++;
             } catch (_) {
@@ -503,7 +519,8 @@ ${data.text}`;
       } else if (lastProposal.type === "fulldoc-full") {
         await Word.run(async (context) => {
           const range = context.document.body.getRange();
-          range.insertText(lastProposal.text, "Replace");
+          const inserted = range.insertText(lastProposal.text, "Replace");
+          if (markRed) inserted.font.color = "#FF0000";
           await context.sync();
         });
       } else {
@@ -517,13 +534,15 @@ ${data.text}`;
           const stillSelected = (sel.text || "").trim();
 
           if (stillSelected.length > 0) {
-            sel.insertText(lastProposal.text, "Replace");
+            const inserted = sel.insertText(lastProposal.text, "Replace");
+            if (markRed) inserted.font.color = "#FF0000";
           } else if (capturedSelectionText) {
             const ranges = context.document.body.search(capturedSelectionText, { matchCase: false });
             ranges.load("items");
             await context.sync();
             if (ranges.items.length > 0) {
-              ranges.items[0].insertText(lastProposal.text, "Replace");
+              const inserted = ranges.items[0].insertText(lastProposal.text, "Replace");
+              if (markRed) inserted.font.color = "#FF0000";
             } else {
               throw new Error("Không tìm thấy đoạn văn bản đã chọn để thay thế.");
             }
@@ -542,6 +561,7 @@ ${data.text}`;
       lastProposal = null;
       preview.innerHTML = "";
       applyBtn.style.display = "none";
+      markRedWrap.style.display = "none";
       setStatus("Ready.");
     } catch (err) {
       setStatus("Apply failed: " + (err.message || err));
@@ -559,6 +579,7 @@ ${data.text}`;
     log.innerHTML = "";
     preview.innerHTML = "";
     applyBtn.style.display = "none";
+    markRedWrap.style.display = "none";
     setStatus("New chat. Select text and ask me to edit it.");
   }
 
