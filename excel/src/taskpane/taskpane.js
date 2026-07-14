@@ -25,6 +25,9 @@ const history = [{ role: "system", content: SYSTEM }];
 let pendingActions = [];
 let lastSig = null;
 let busy = false;
+// Sheet the current pendingActions proposal was generated against — apply()
+// must target this sheet, not whatever happens to be active by click time.
+let proposalSheetName = null;
 
 Office.onReady(() => {
   document.getElementById("ask").onclick = ask;
@@ -51,6 +54,7 @@ async function ask() {
   setBusy(true, "Reading sheet…");
   try {
     const snap = await getSnapshot();
+    proposalSheetName = snap.name;
     const sig = signature(snap);
     let content = prompt;
     if (sig !== lastSig) {
@@ -79,6 +83,7 @@ async function ask() {
 function newChat() {
   history.length = 1; // keep system message
   lastSig = null;
+  proposalSheetName = null;
   clearPending();
   document.getElementById("log").innerHTML = "";
   setStatus("New chat. Open your data tab and ask.");
@@ -123,7 +128,8 @@ function dataNote(s) {
 }
 
 function signature(s) {
-  return `${s.name}|${s.address}|${s.values.length}|${hash(JSON.stringify(s.values))}`;
+  const selPart = s.selection ? `${s.selection.address}|${hash(JSON.stringify(s.selection.values))}` : "";
+  return `${s.name}|${s.address}|${s.values.length}|${hash(JSON.stringify(s.values))}|${selPart}`;
 }
 function hash(str) {
   let h = 5381;
@@ -182,7 +188,22 @@ async function apply() {
   try {
     await Excel.run(async (context) => {
       const wb = context.workbook;
-      let sheet = wb.worksheets.getActiveWorksheet();
+      const activeSheet = wb.worksheets.getActiveWorksheet();
+      activeSheet.load("name");
+      let sheet = proposalSheetName ? wb.worksheets.getItemOrNullObject(proposalSheetName) : activeSheet;
+      sheet.load(["name", "isNullObject"]);
+      await context.sync();
+
+      if (sheet.isNullObject) {
+        throw new Error(`Sheet "${proposalSheetName}" không còn tồn tại. Hãy hỏi lại Hermes.`);
+      }
+      if (proposalSheetName && activeSheet.name !== proposalSheetName) {
+        throw new Error(
+          `Sheet đang mở là "${activeSheet.name}" nhưng đề xuất này được tạo cho "${proposalSheetName}". ` +
+          `Hãy quay lại sheet "${proposalSheetName}" rồi Apply.`
+        );
+      }
+
       for (const a of pendingActions) {
         switch (a.type) {
           case "newSheet": {
@@ -233,6 +254,7 @@ async function apply() {
     addBubble("bot", `Applied ${pendingActions.length} action(s).`);
     clearPending();
     lastSig = null; // workbook changed — re-send fresh data on the next turn
+    proposalSheetName = null;
     setStatus("Ready.");
   } catch (e) {
     addBubble("bot", "⚠ " + e.message);

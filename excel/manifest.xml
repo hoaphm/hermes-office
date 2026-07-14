@@ -2,7 +2,7 @@
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="TaskPaneApp">
   <Id>7865e479-791f-49f7-80f3-8ea5e6c0b237</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Tonbi</ProviderName>
+  <ProviderName>Hermes</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Hermes for Excel"/>
   <Description DefaultValue="Chat with your Hermes agent inside Excel, plus =HERMES.* custom functions."/>
@@ -91,18 +91,18 @@
       <bt:Urls>
         <bt:Url id="Functions.Script.Url" DefaultValue="https://localhost:8643/functions.js"/>
         <bt:Url id="Functions.Metadata.Url" DefaultValue="https://localhost:8643/functions.json"/>
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://go.microsoft.com/fwlink/?LinkId=276812"/>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/tonbistudio/hermes-office"/>
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:8643/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Functions.Namespace" DefaultValue="HERMES"/>
-        <bt:String id="GetStarted.Title" DefaultValue="Get started with your sample add-in!"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Commands Group"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Show Task Pane"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Hermes for Excel"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Hermes"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Show Taskpane"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Your sample add-in loaded successfully. Go to the HOME tab and click the 'Show Task Pane' button to get started."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Click to Show a Task Pane"/>
+        <bt:String id="GetStarted.Description" DefaultValue="Chat with Hermes Agent to edit and improve your workbook."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Hermes chat panel to edit this workbook with AI."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

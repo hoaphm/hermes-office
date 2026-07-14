@@ -29,6 +29,17 @@ Office.onReady().then(() => {
     statusEl.textContent = text;
   }
 
+  // Escapes text before it is interpolated into an innerHTML template, so
+  // model output or document text can never inject markup into the preview.
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // ---- reading the selection (text / table / full doc) ---------------------
 
   // Word.run with retry — the first read right after a document switch can
@@ -140,17 +151,21 @@ Office.onReady().then(() => {
     for (const table of tables) {
       table.load(["rowCount", "columnCount"]);
       await context.sync();
-      const values = [];
+      // Load every cell's range up front and sync ONCE per table, instead of
+      // round-tripping per cell — and read .text off the same range object
+      // that was loaded (a fresh getRange() call returns an unloaded proxy).
+      const rangeRows = [];
       for (let r = 0; r < table.rowCount; r++) {
-        const rowData = [];
+        const rangeRow = [];
         for (let c = 0; c < table.columnCount; c++) {
-          const cell = table.getCell(r, c);
-          cell.body.getRange().load("text");
-          try { await context.sync(); rowData.push(cell.body.getRange().text.trim()); }
-          catch (_) { rowData.push(""); }
+          const range = table.getCell(r, c).body.getRange();
+          range.load("text");
+          rangeRow.push(range);
         }
-        values.push(rowData);
+        rangeRows.push(rangeRow);
       }
+      await context.sync();
+      const values = rangeRows.map((rangeRow) => rangeRow.map((range) => (range.text || "").trim()));
       rows.push({ rowCount: table.rowCount, columnCount: table.columnCount, values });
     }
     return rows;
@@ -180,9 +195,31 @@ Office.onReady().then(() => {
     return null;
   }
 
+  // Base-26 column index (0-based) <-> letters, e.g. 0 -> "A", 25 -> "Z",
+  // 26 -> "AA". Plain `String.fromCharCode(65 + i)` only covers single
+  // letters and silently wraps/collides past column Z.
+  function columnIndexToLetters(index) {
+    let n = index + 1;
+    let letters = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      letters = String.fromCharCode(65 + rem) + letters;
+      n = Math.floor((n - 1) / 26);
+    }
+    return letters;
+  }
+
+  function columnLettersToIndex(letters) {
+    let n = 0;
+    for (let i = 0; i < letters.length; i++) {
+      n = n * 26 + (letters.charCodeAt(i) - 64);
+    }
+    return n - 1;
+  }
+
   function formatTablePreview(tbl) {
     const flat = tbl.values.map((row, ri) => {
-      const cells = row.map((cell, ci) => `  [${String.fromCharCode(65 + ci)}${ri + 1}] ${cell}`).join("\n");
+      const cells = row.map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`).join("\n");
       return `Row ${ri + 1}:\n${cells}`;
     }).join("\n\n");
     return `${tbl.rowCount} rows x ${tbl.columnCount} cols\n\n${flat}`;
@@ -298,7 +335,7 @@ ${data.text}`;
         if (tableChanges.length > 0) {
           lastProposal = { type: "table", changes: tableChanges };
           preview.innerHTML = tableChanges.map(c =>
-            `<div class="act">Set ${c.cell} → "${c.value}"</div>`
+            `<div class="act">Set ${escapeHtml(c.cell)} → "${escapeHtml(c.value)}"</div>`
           ).join("");
           applyBtn.style.display = "block";
         }
@@ -306,7 +343,7 @@ ${data.text}`;
         lastProposal = { type: "text", text: reply };
         preview.innerHTML = `
           <div class="act">Proposed edit:</div>
-          <div class="msg bot">${reply.replace(/\n/g, "<br>")}</div>
+          <div class="msg bot">${escapeHtml(reply).replace(/\n/g, "<br>")}</div>
         `;
         applyBtn.style.display = "block";
       } else if (selectionData.type === "fulldoc") {
@@ -315,7 +352,7 @@ ${data.text}`;
         if (edits.length > 0) {
           lastProposal = { type: "fulldoc-edits", edits };
           preview.innerHTML = edits.map(e =>
-            `<div class="act">"${e.find}" → "${e.replace}"</div>`
+            `<div class="act">"${escapeHtml(e.find)}" → "${escapeHtml(e.replace)}"</div>`
           ).join("") + `<div class="act">Áp dụng cho mọi vị trí (giữ nguyên định dạng).</div>`;
           applyBtn.style.display = "block";
         } else if (reply.trim().length > selectionData.text.length * 0.5) {
@@ -382,16 +419,20 @@ ${data.text}`;
   function cellRefToPosition(cellRef, rowCount, columnCount) {
     const match = cellRef.match(/^([A-Z]+)(\d+)$/i);
     if (!match) return null;
-    const col = match[1].toUpperCase().charCodeAt(0) - 65;
+    const col = columnLettersToIndex(match[1].toUpperCase());
     const row = parseInt(match[2], 10) - 1;
     if (col < 0 || col >= columnCount || row < 0 || row >= rowCount) return null;
     return { row, col };
   }
 
+  // Word's Range.search() rejects find strings longer than 255 characters.
+  const MAX_SEARCH_LEN = 255;
+
   async function applyEdit() {
     if (!lastProposal) return;
 
     setStatus("Applying…");
+    let editStats = null;
     try {
       if (lastProposal.type === "table") {
         await Word.run(async (context) => {
@@ -413,15 +454,26 @@ ${data.text}`;
         });
       } else if (lastProposal.type === "fulldoc-edits") {
         // Inline search-and-replace for each edit — only wrong spots change,
-        // surrounding formatting is preserved.
-        await Word.run(async (context) => {
+        // surrounding formatting is preserved. Each edit is applied and
+        // sync'd independently so one bad edit (search text too long, or no
+        // longer found) can't abort the rest of the batch.
+        editStats = await Word.run(async (context) => {
+          let applied = 0;
+          let skipped = 0;
           for (const edit of lastProposal.edits) {
-            const ranges = context.document.body.search(edit.find, { matchCase: false });
-            ranges.load("items");
-            await context.sync();
-            ranges.items.forEach((r) => r.insertText(String(edit.replace), "Replace"));
+            if (!edit.find || edit.find.length > MAX_SEARCH_LEN) { skipped++; continue; }
+            try {
+              const ranges = context.document.body.search(edit.find, { matchCase: false });
+              ranges.load("items");
+              await context.sync();
+              ranges.items.forEach((r) => r.insertText(String(edit.replace), "Replace"));
+              await context.sync();
+              applied++;
+            } catch (_) {
+              skipped++;
+            }
           }
-          await context.sync();
+          return { applied, skipped };
         });
       } else if (lastProposal.type === "fulldoc-full") {
         await Word.run(async (context) => {
@@ -457,8 +509,11 @@ ${data.text}`;
         });
       }
       const n = lastProposal.type === "table" ? lastProposal.changes.length
-        : lastProposal.type === "fulldoc-edits" ? lastProposal.edits.length : 1;
-      addMsg("bot", `Applied ${n} action(s).`);
+        : editStats ? editStats.applied : 1;
+      const skippedNote = editStats && editStats.skipped > 0
+        ? ` (${editStats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
+        : "";
+      addMsg("bot", `Applied ${n} action(s).${skippedNote}`);
       lastProposal = null;
       preview.innerHTML = "";
       applyBtn.style.display = "none";

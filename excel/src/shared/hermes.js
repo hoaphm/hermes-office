@@ -1,4 +1,6 @@
 /* global fetch */
+// Duplicated in word/src/shared/hermes.js (no shared package between the
+// two add-ins) — keep both copies in sync when editing.
 // One place both the task pane and the custom functions call Hermes.
 // Caddy (https://localhost:8643) terminates TLS and injects the Authorization
 // header, so we never send the API key from here.
