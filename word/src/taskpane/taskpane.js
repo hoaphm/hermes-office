@@ -16,6 +16,12 @@ Office.onReady().then(() => {
   // Snapshot of the text range captured at send time, used as a fallback
   // target if the user's selection is lost by the time they click Apply.
   let capturedSelectionText = "";
+  // Selection captured at the moment it happens in the document (via
+  // selectionChanged), NOT at click time — clicking the Ask button moves
+  // focus into the taskpane and drops the in-document selection, so reading
+  // it fresh inside sendMessage() would always see "" and fall back to
+  // treating the request as whole-document.
+  let pinnedSelectionText = "";
 
   function addMsg(role, text) {
     const div = document.createElement("div");
@@ -117,6 +123,20 @@ Office.onReady().then(() => {
     }
   }
 
+  // Fires on every in-document selection change; keeps pinnedSelectionText
+  // fresh so it reflects what the user selected right before they clicked
+  // into the taskpane. Runs outside a Word.run context, so it opens its own.
+  async function onSelectionChangedHandler() {
+    pinnedSelectionText = await readSelectedText();
+  }
+
+  function registerSelectionChangedHandler() {
+    Word.run(async (context) => {
+      context.document.onSelectionChanged.add(onSelectionChangedHandler);
+      await context.sync();
+    }).catch(() => {});
+  }
+
   async function getSelectionData() {
     const selText = await readSelectedText();
 
@@ -131,10 +151,15 @@ Office.onReady().then(() => {
       return { type: "table", tables: tableRows, rawText: selText };
     }
 
+    // Prefer the PINNED selection (captured live, before focus moved to the
+    // taskpane) over a fresh read, which is almost always empty by the time
+    // the Ask button handler runs.
+    const effectiveSelText = pinnedSelectionText.trim().length > 0 ? pinnedSelectionText : selText;
+
     // Plain text selection (even short) → operate on exactly that text.
-    if (selText.length > 0) {
-      capturedSelectionText = selText;
-      return { type: "text", text: selText };
+    if (effectiveSelText.length > 0) {
+      capturedSelectionText = effectiveSelText;
+      return { type: "text", text: effectiveSelText };
     }
 
     // Nothing selected → operate on the whole open document.
@@ -528,11 +553,17 @@ ${data.text}`;
     messages = [];
     lastProposal = null;
     capturedSelectionText = "";
+    // Cleared so a fresh chat never reuses a stale pinned selection; the
+    // next selectionChanged event (or an existing live selection) repins it.
+    pinnedSelectionText = "";
     log.innerHTML = "";
     preview.innerHTML = "";
     applyBtn.style.display = "none";
     setStatus("New chat. Select text and ask me to edit it.");
   }
+
+  registerSelectionChangedHandler();
+  onSelectionChangedHandler(); // prime pinnedSelectionText for a selection made before Office.onReady resolved
 
   askBtn.addEventListener("click", sendMessage);
   input.addEventListener("keydown", (e) => {
