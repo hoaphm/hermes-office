@@ -9,6 +9,14 @@ import { columnIndexToLetters, columnLettersToIndex, parseEdits, parseTableChang
 // cap it so a large file doesn't blow up the request payload / token budget.
 const MAX_FULLDOC_CHARS = 30000;
 
+// Bookmark used to anchor the user's selection in the document at the moment
+// they make it. A bookmark is a live document object, so re-reading its text
+// (or range) later is always accurate — unlike a captured text string, which
+// can go stale when the selectionChanged proxy resolves against an earlier
+// snapshot. This is what makes "select A, rewrite, then select B, rewrite"
+// reliably target B instead of revisiting A.
+const PIN_BOOKMARK_NAME = "HermesPinnedSelection";
+
 Office.onReady().then(() => {
   const log = document.getElementById("log");
   const input = document.getElementById("prompt");
@@ -30,6 +38,10 @@ Office.onReady().then(() => {
   // it fresh inside sendMessage() would always see "" and fall back to
   // treating the request as whole-document.
   let pinnedSelectionText = "";
+  // The in-flight pinCurrentSelection() promise. Ask awaits it before reading
+  // the bookmark, so selecting a passage and clicking Ask immediately can't
+  // read the pin mid-flight and resolve the PREVIOUS passage.
+  let pendingPin = Promise.resolve();
 
   function addMsg(role, text) {
     const div = document.createElement("div");
@@ -131,11 +143,118 @@ Office.onReady().then(() => {
     }
   }
 
-  // Fires on every in-document selection change; keeps pinnedSelectionText
-  // fresh so it reflects what the user selected right before they clicked
-  // into the taskpane. Runs outside a Word.run context, so it opens its own.
+  // Anchor the current selection in the document with a bookmark so the exact
+  // range survives focus leaving the document. Re-create it on every change so
+  // only the LATEST selection is pinned — this is what keeps "select B, rewrite"
+  // from re-targeting the previously selected passage A.
+  async function pinCurrentSelection() {
+    try {
+      await wordRunWithRetry(async (context) => {
+        const sel = context.document.getSelection();
+        sel.load("text");
+        await context.sync();
+        const text = (sel.text || "").trim();
+        // Only (re)pin on a NON-empty selection. An empty/collapsed selection
+        // event also fires when focus merely leaves the document (e.g. the
+        // user clicks Ask or Apply in the taskpane) — deleting the bookmark
+        // there would wipe the pin the pending proposal depends on. Stale
+        // pins are cleared by newChat() / replaced by the next real selection.
+        if (text.length > 0) {
+          pinnedSelectionText = text;
+          // deleteBookmark is a no-op when the bookmark doesn't exist;
+          // delete-then-insert in one batch replaces any previous pin.
+          context.document.deleteBookmark(PIN_BOOKMARK_NAME);
+          sel.insertBookmark(PIN_BOOKMARK_NAME);
+          await context.sync();
+        }
+      });
+    } catch (_) {
+      // Selection pinning is best-effort (the bookmark APIs need WordApi 1.4);
+      // the pinnedSelectionText / fresh-read fallbacks still work.
+    }
+  }
+
+  // Read the text of the pinned selection back from its bookmark. Returns null
+  // when no selection is pinned (empty selection, brand-new chat, etc.).
+  async function getPinnedSelectionFromBookmark() {
+    try {
+      return await wordRunWithRetry((context) => {
+        // Note: the Word JS API has no document.bookmarks collection (that's
+        // the VBA object model) — bookmarks are reached via this Document
+        // method, which returns the bookmark's Range directly.
+        const range = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        range.load(["isNullObject", "text"]);
+        return context.sync().then(() => {
+          if (range.isNullObject) return null;
+          const t = (range.text || "").trim();
+          return t.length > 0 ? t : null;
+        });
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Make the pin authoritative at Ask time: guarantee the bookmark holds
+  // exactly the passage being sent to Hermes, regardless of any stray
+  // selectionChanged noise fired while focus moved into the taskpane. If the
+  // bookmark already matches, this is a no-op; otherwise re-anchor it on the
+  // live selection (or a search hit) whose text matches what was captured.
+  async function ensurePinnedBookmark(expectedText) {
+    if (!expectedText) return;
+    // Bookmark APIs need WordApi 1.4 — pre-1.4 hosts rely on the
+    // captured-text search fallback at Apply time instead.
+    if (!Office.context.requirements.isSetSupported("WordApi", "1.4")) return;
+    try {
+      await wordRunWithRetry(async (context) => {
+        const bmRange = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        bmRange.load(["isNullObject", "text"]);
+        const sel = context.document.getSelection();
+        sel.load("text");
+        await context.sync();
+        if (!bmRange.isNullObject && (bmRange.text || "").trim() === expectedText) return;
+        let target = null;
+        if ((sel.text || "").trim() === expectedText) {
+          target = sel;
+        } else if (expectedText.length <= MAX_SEARCH_LEN) {
+          const ranges = context.document.body.search(expectedText, { matchCase: false });
+          ranges.load("items");
+          await context.sync();
+          if (ranges.items.length > 0) target = ranges.items[0];
+        }
+        if (target) {
+          context.document.deleteBookmark(PIN_BOOKMARK_NAME);
+          target.insertBookmark(PIN_BOOKMARK_NAME);
+          await context.sync();
+        }
+      });
+    } catch (_) {
+      // Best-effort — Apply still has the bookmark/search fallbacks.
+    }
+  }
+
+  // Remove the pin bookmark (e.g. on a fresh chat, or when the flow doesn't
+  // need it) so it never lingers in the document.
+  async function clearSelectionBookmark() {
+    try {
+      await wordRunWithRetry(async (context) => {
+        // deleteBookmark is a no-op when the bookmark doesn't exist.
+        context.document.deleteBookmark(PIN_BOOKMARK_NAME);
+        await context.sync();
+      });
+    } catch (_) {
+      // best-effort cleanup
+    }
+  }
+
+  // Fires on every in-document selection change; pins the new selection with a
+  // bookmark so getSelectionData() later resolves the EXACT passage the user
+  // just selected. Runs outside a Word.run context, so it opens its own.
   async function onSelectionChangedHandler() {
-    pinnedSelectionText = await readSelectedText();
+    // pinCurrentSelection never rejects (it catches internally), so this
+    // promise is always safe to await from getSelectionData().
+    pendingPin = pinCurrentSelection();
+    await pendingPin;
   }
 
   // Note: this handler is never explicitly removed (no
@@ -151,6 +270,11 @@ Office.onReady().then(() => {
   }
 
   async function getSelectionData() {
+    // If a selectionChanged re-pin is still in flight (the user selected a
+    // passage and clicked Ask right away), let it finish first — reading the
+    // bookmark mid-pin would resolve the previously pinned passage.
+    await pendingPin;
+
     const selText = await readSelectedText();
 
     // A table selection still carries text, so check tables FIRST.
@@ -164,10 +288,28 @@ Office.onReady().then(() => {
       return { type: "table", tables: tableRows, rawText: selText };
     }
 
-    // Prefer the PINNED selection (captured live, before focus moved to the
-    // taskpane) over a fresh read, which is almost always empty by the time
-    // the Ask button handler runs.
-    const effectiveSelText = pinnedSelectionText.trim().length > 0 ? pinnedSelectionText : selText;
+    // The LIVE selection is authoritative at Ask time; the pinned bookmark is
+    // only a fallback for when the selection collapsed as focus moved into
+    // the taskpane. Preferring the bookmark unconditionally let a STALE pin
+    // win — e.g. Apply re-anchors the bookmark on the previous passage's
+    // rewritten text, so if the pin handler hadn't caught up with a newly
+    // selected passage yet, Ask would silently target the old one again.
+    const pinnedFromBookmark = await getPinnedSelectionFromBookmark();
+    let effectiveSelText;
+    if (selText.length > 0 && selText !== pinnedFromBookmark) {
+      // Fresh selection the pin missed (or hasn't caught up with) — re-anchor
+      // the bookmark on it now via the live selection RANGE, which works for
+      // any length (body.search rejects find strings over 255 chars). This
+      // also updates pinnedSelectionText.
+      await pinCurrentSelection();
+      effectiveSelText = selText;
+    } else if (pinnedFromBookmark && pinnedFromBookmark.length > 0) {
+      effectiveSelText = pinnedFromBookmark;
+    } else if (pinnedSelectionText.trim().length > 0) {
+      effectiveSelText = pinnedSelectionText;
+    } else {
+      effectiveSelText = selText;
+    }
 
     // Plain text selection (even short) → operate on exactly that text.
     if (effectiveSelText.length > 0) {
@@ -318,6 +460,13 @@ ${data.text}`;
 
     try {
       const selectionData = await getSelectionData();
+
+      // Re-assert the pin for exactly the text being sent to Hermes, so a
+      // stray empty selectionChanged (focus moving into the taskpane) can
+      // never leave Apply without an anchor for this proposal.
+      if (selectionData.type === "text") {
+        await ensurePinnedBookmark(capturedSelectionText);
+      }
 
       if (selectionData.type === "empty") {
         addMsg("bot", "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.");
@@ -483,33 +632,54 @@ ${data.text}`;
           await context.sync();
         });
       } else {
-        // Plain text: replace the selection if it is still intact, otherwise
-        // fall back to replacing the first occurrence of the captured text so
-        // Apply never fails just because focus moved to the task pane.
+        // Plain text: replace the pinned selection if its bookmark is still in
+        // the document AND still holds the passage this proposal was generated
+        // for — the pin tracks the LATEST selection, so if the user selected a
+        // different passage after asking, blindly inserting into the bookmark
+        // would overwrite the wrong text. On mismatch (or a lost bookmark),
+        // fall back to a search for the captured text so Apply never fails
+        // just because focus moved to the task pane.
         await Word.run(async (context) => {
-          const sel = context.document.getSelection();
-          sel.load("text");
-          await context.sync();
-          const stillSelected = (sel.text || "").trim();
-
-          if (stillSelected.length > 0) {
-            const inserted = sel.insertText(lastProposal.text, "Replace");
-            if (markRed) inserted.font.color = "#FF0000";
-          } else if (capturedSelectionText) {
+          // Bookmark APIs need WordApi 1.4 — on older hosts skip straight to
+          // the search fallback instead of throwing mid-batch.
+          const canUseBookmark = Office.context.requirements.isSetSupported("WordApi", "1.4");
+          let bmRange = null;
+          let bmText = null;
+          if (canUseBookmark) {
+            bmRange = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+            bmRange.load(["isNullObject", "text"]);
+            await context.sync();
+            if (!bmRange.isNullObject) bmText = (bmRange.text || "").trim();
+          }
+          const bookmarkMatchesProposal =
+            bmText !== null && (!capturedSelectionText || bmText === capturedSelectionText);
+          let inserted = null;
+          if (bookmarkMatchesProposal) {
+            inserted = bmRange.insertText(lastProposal.text, "Replace");
+          } else if (capturedSelectionText && capturedSelectionText.length <= MAX_SEARCH_LEN) {
             const ranges = context.document.body.search(capturedSelectionText, { matchCase: false });
             ranges.load("items");
             await context.sync();
             if (ranges.items.length > 0) {
-              const inserted = ranges.items[0].insertText(lastProposal.text, "Replace");
-              if (markRed) inserted.font.color = "#FF0000";
+              inserted = ranges.items[0].insertText(lastProposal.text, "Replace");
             } else {
-              throw new Error("Không tìm thấy đoạn văn bản đã chọn để thay thế.");
+              throw new Error("Không tìm thấy đoạn văn bản đã chọn để thay thế. Hãy chọn lại đoạn đó rồi Apply.");
             }
+          } else if (capturedSelectionText) {
+            // Too long to search for and the bookmark no longer matches it.
+            throw new Error("Đoạn văn bản gốc không còn được ghim. Hãy chọn lại đoạn cần thay rồi hỏi lại.");
           } else {
             throw new Error("Không có văn bản được chọn để áp dụng.");
           }
+          if (markRed) inserted.font.color = "#FF0000";
+          // Re-pin the inserted text: replacing a bookmarked range removes the
+          // bookmark, so without this a follow-up "rewrite it again" in the
+          // same chat would have nothing pinned and fall back to stale text.
+          if (canUseBookmark) inserted.insertBookmark(PIN_BOOKMARK_NAME);
           await context.sync();
         });
+        pinnedSelectionText = lastProposal.text.trim();
+        capturedSelectionText = pinnedSelectionText;
       }
       const n = lastProposal.type === "table" ? lastProposal.changes.length
         : editStats ? editStats.applied : 1;
@@ -535,6 +705,8 @@ ${data.text}`;
     // Cleared so a fresh chat never reuses a stale pinned selection; the
     // next selectionChanged event (or an existing live selection) repins it.
     pinnedSelectionText = "";
+    // Drop the pin bookmark from the document so a new chat starts clean.
+    clearSelectionBookmark();
     log.innerHTML = "";
     preview.innerHTML = "";
     applyBtn.style.display = "none";
