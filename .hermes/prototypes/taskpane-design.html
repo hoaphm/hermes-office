@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hermes Taskpane — Design System Prototype</title>
+<style>
+  /* ============================================================
+     Design tokens — Office Fluent aligned (Word/Excel taskpane).
+     Use CSS custom props so a single file is the source of truth;
+     both add-ins can <link> this stylesheet and never drift.
+     ponytail: skipped light/dark theme switch — add when Excel
+                dark-mode parity is required.
+  ============================================================ */
+  :root {
+    /* Surfaces — Neutral 2 ramp (matches fluent design) */
+    --surface-canvas:   #fafafa;
+    --surface-1:        #ffffff;
+    --surface-2:        #f5f5f5;
+    --surface-3:        #ededed;
+    --surface-inverse:  #1f1f1f;
+
+    /* Content / borders */
+    --ink-1: #201f1e;   /* primary text */
+    --ink-2: #424242;   /* secondary */
+    --ink-3: #6b6b6b;   /* tertiary, placeholder */
+    --ink-inverse: #ffffff;
+
+    --line-1: #e1e1e1;
+    --line-2: #c8c6c4;
+
+    /* Brand accent — Fluent default */
+    --accent:        #0078d4;
+    --accent-hover:  #106ebe;
+    --accent-press:  #005a9e;
+    --accent-soft:   #deecf9;
+    --accent-ink:    #ffffff;
+
+    /* Status (proposal/diff) */
+    --status-pending:  #fff4ce; --status-pending-ink: #6b5d00;
+    --status-applied:  #dff6dd; --status-applied-ink: #107c10;
+    --status-error:    #fde7e9; --status-error-ink:   #a80000;
+
+    /* Type ramp — Segoe UI Variable is the Fluent default; fall back to SF Pro on macOS so the taskpane blends into Word/Excel */
+    --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --fs-100: 11px; --fs-200: 12px; --fs-300: 14px;
+    --fs-400: 16px; --fs-500: 18px; --fs-600: 20px;
+
+    --lh-tight: 1.25; --lh-normal: 1.45;
+
+    /* Spacing — 4 px grid, Office-taskpane dense (Office density = 0) */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px;
+    --space-4: 16px; --space-5: 24px; --space-6: 32px;
+
+    --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
+
+    --shadow-1: 0 1px 2px rgba(0,0,0,.05);
+    --shadow-2: 0 4px 14px rgba(0,0,0,.08);
+
+    /* Motion — Fluent 150/250 ms */
+    --ease: cubic-bezier(.33,.0,.67,1);
+    --dur-1: 150ms; --dur-2: 250ms;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-canvas: #1f1f1f;
+      --surface-1: #2b2b2b;
+      --surface-2: #333333;
+      --surface-3: #404040;
+      --ink-1: #f5f5f5; --ink-2: #c8c6c4; --ink-3: #9b9a99;
+      --line-1: #404040; --line-2: #525252;
+      --accent: #2899f5; --accent-hover: #3aa0f3; --accent-press: #1c84dd;
+      --accent-soft: #1a3a52;
+      --status-pending: #4d3f00; --status-pending-ink: #ffd979;
+      --status-applied: #103e10; --status-applied-ink: #9ad89a;
+      --status-error:   #4a0d10; --status-error-ink:   #ff8a91;
+    }
+  }
+
+  /* ============================================================
+     Reset — minimal, scoped to the taskpane so we don't leak into
+     Office's host chrome.
+  ============================================================ */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 400 var(--fs-300)/var(--lh-normal) var(--font-sans);
+    color: var(--ink-1); background: var(--surface-canvas);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; }
+  ul { list-style: none; margin: 0; padding: 0; }
+
+  /* ============================================================
+     Layout — Office taskpane is ~328 px on default ribbon. Sticky
+     footer keeps the Ask input reachable while the log scrolls.
+  ============================================================ */
+  .pane {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto auto;
+    height: 100vh;
+    width: 360px;
+  }
+  .pane__header,
+  .pane__footer {
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-1);
+    border-color: var(--line-1);
+  }
+  .pane__header { border-bottom: 1px solid var(--line-1); }
+  .pane__footer { border-top: 1px solid var(--line-1); display: grid; gap: var(--space-2); }
+  .pane__divider { height: 1px; background: var(--line-1); }
+
+  .log {
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-4) var(--space-5);
+    display: flex; flex-direction: column; gap: var(--space-3);
+    scroll-behavior: smooth;
+  }
+
+  /* ============================================================
+     Header — brand mark + title + status
+  ============================================================ */
+  .brand {
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .brand__mark {
+    width: 24px; height: 24px;
+    background: var(--accent); color: var(--accent-ink);
+    border-radius: var(--radius-sm);
+    display: grid; place-items: center;
+    font-weight: 600; font-size: var(--fs-200);
+  }
+  .brand__title { font-weight: 600; font-size: var(--fs-400); line-height: var(--lh-tight); }
+  .brand__sub   { font-size: var(--fs-200); color: var(--ink-3); }
+
+  .toolbar { display: flex; gap: var(--space-1); margin-top: var(--space-3); }
+  .status {
+    margin-top: var(--space-2);
+    font-size: var(--fs-100);
+    color: var(--ink-3);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .status[data-state="busy"]::before,
+  .status[data-state="error"]::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .status[data-state="error"]::before { background: var(--status-error-ink); }
+  .status[data-state="busy"]::before {
+    animation: pulse 1.2s var(--ease) infinite;
+  }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* ============================================================
+     Chat bubbles — left for bot, right for user; max-width 92%
+     to keep the most recent context visible without horizontal
+     scroll on narrow taskpanes.
+  ============================================================ */
+  .msg {
+    max-width: 92%;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-300);
+    word-wrap: break-word; overflow-wrap: anywhere;
+    line-height: var(--lh-normal);
+    animation: slide-in var(--dur-2) var(--ease);
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .msg--bot  { align-self: flex-start; background: var(--surface-2); color: var(--ink-1); }
+  .msg--user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); }
+
+  /* ============================================================
+     Proposal card — replaces the inline plaintext .act list.
+     Single source of truth for both Word and Excel previews.
+  ============================================================ */
+  .proposal {
+    background: var(--surface-1);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-1);
+  }
+  .proposal__header {
+    padding: var(--space-2) var(--space-3);
+    background: var(--accent-soft);
+    color: var(--accent-press);
+    font-size: var(--fs-200);
+    font-weight: 600;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .proposal__body { padding: var(--space-3); display: grid; gap: var(--space-2); }
+  .proposal__footer {
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--line-1);
+    background: var(--surface-2);
+    display: flex; gap: var(--space-2); align-items: center; justify-content: space-between;
+  }
+  .proposal__footer .options { display: flex; gap: var(--space-3); align-items: center; color: var(--ink-2); font-size: var(--fs-200); }
+
+  /* Diff row inside a proposal */
+  .diff {
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: var(--space-2);
+    font-size: var(--fs-200);
+    line-height: var(--lh-normal);
+  }
+  .diff__label { color: var(--ink-3); padding-top: 2px; }
+  .diff__cell {
+    font-family: var(--font-mono);
+    background: var(--surface-2);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2);
+    overflow-wrap: anywhere;
+  }
+  .diff--added   .diff__cell { background: var(--status-applied); border-color: var(--status-applied); }
+  .diff--removed .diff__cell { background: var(--status-error);   border-color: var(--status-error);   text-decoration: line-through; }
+
+  /* ============================================================
+     Buttons — Fluent appearance tokens mapped to classes
+  ============================================================ */
+  .btn {
+    appearance: none; border: 1px solid transparent;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-300); font-weight: 500;
+    cursor: pointer;
+    min-height: 28px;
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    transition: background var(--dur-1) var(--ease),
+                border-color var(--dur-1) var(--ease),
+                box-shadow var(--dur-1) var(--ease);
+  }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+  .btn--accent  { background: var(--accent); color: var(--accent-ink); }
+  .btn--accent:hover:not([disabled])  { background: var(--accent-hover); }
+  .btn--accent:active:not([disabled]) { background: var(--accent-press); }
+
+  .btn--outline {
+    background: var(--surface-1); color: var(--ink-1); border-color: var(--line-2);
+  }
+  .btn--outline:hover:not([disabled])  { background: var(--surface-2); }
+  .btn--outline:active:not([disabled]) { background: var(--surface-3); }
+
+  .btn--subtle {
+    background: transparent; color: var(--ink-1);
+  }
+  .btn--subtle:hover:not([disabled])  { background: var(--surface-2); }
+
+  .btn--sm { min-height: 24px; padding: 2px var(--space-2); font-size: var(--fs-200); }
+
+  /* ============================================================
+     Form — multi-line prompt input that grows with content
+  ============================================================ */
+  .field {
+    display: grid; gap: var(--space-1);
+  }
+  .field__label {
+    font-size: var(--fs-200); color: var(--ink-2); font-weight: 500;
+  }
+  .field__hint {
+    font-size: var(--fs-100); color: var(--ink-3);
+  }
+  .input, .textarea {
+    width: 100%;
+    font: 400 var(--fs-300)/var(--lh-normal) var(--font-sans);
+    color: var(--ink-1);
+    background: var(--surface-1);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+  }
+  .input:focus-visible, .textarea:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .textarea { resize: none; min-height: 64px; max-height: 160px; }
+
+  .checkbox { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--fs-200); }
+  .checkbox input { accent-color: var(--accent); }
+
+  .prompt-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }
+  .prompt-row .btn { align-self: end; }
+
+  /* ============================================================
+     Toast — micro-feedback at the bottom of the log
+  ============================================================ */
+  .toast {
+    align-self: stretch;
+    background: var(--status-pending);
+    color: var(--status-pending-ink);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-200);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .toast--ok    { background: var(--status-applied); color: var(--status-applied-ink); }
+  .toast--err   { background: var(--status-error);   color: var(--status-error-ink);   }
+
+  /* ============================================================
+     Util — divider, ghost text
+  ============================================================ */
+  .sep { border-top: 1px solid var(--line-1); margin: var(--space-3) 0; }
+  .muted { color: var(--ink-3); font-size: var(--fs-200); }
+
+  /* ============================================================
+     Showcase grid — side-by-side comparison
+  ============================================================ */
+  .showcase {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-6);
+    padding: var(--space-5);
+    background: var(--surface-canvas);
+    min-height: 100vh;
+  }
+  .showcase__notes {
+    width: 280px;
+    background: var(--surface-1);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    align-self: start;
+    position: sticky; top: var(--space-5);
+    font-size: var(--fs-300);
+  }
+  .showcase__notes h2 { margin: 0 0 var(--space-2); font-size: var(--fs-500); }
+  .showcase__notes ul { display: grid; gap: var(--space-2); }
+  .showcase__notes li {
+    padding-left: var(--space-3); border-left: 2px solid var(--accent);
+    color: var(--ink-2);
+  }
+  .showcase__stage {
+    display: grid; gap: var(--space-4);
+  }
+  .stage-label {
+    font-size: var(--fs-100); font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+</style>
+</head>
+<body>
+
+<div class="showcase">
+
+  <aside class="showcase__notes">
+    <h2>Design rules</h2>
+    <ul>
+      <li>One token set (<code>:root</code>) drives Word + Excel — both add-ins link <code>design-system.css</code>.</li>
+      <li>Density = 0 (Fluent default). 4 px spacing grid. 28 px control min-height.</li>
+      <li>Text on dark surfaces stays AA against the chosen neutral ink ramp.</li>
+      <li>Proposal card is a shared component; both add-ins render the same JSX.</li>
+      <li>Status colors reserved for pending / applied / error — never for chrome.</li>
+      <li>Reduced motion: <code>@media (prefers-reduced-motion: reduce)</code> disables the slide-in animation.</li>
+    </ul>
+  </aside>
+
+  <main class="showcase__stage">
+
+    <!-- ============== STAGE 1: WORD taskpane ============== -->
+    <section>
+      <div class="stage-label">Word — document edits</div>
+
+      <div class="pane" role="region" aria-label="Hermes Word taskpane">
+        <header class="pane__header">
+          <div class="brand">
+            <div class="brand__mark" aria-hidden="true">H</div>
+            <div>
+              <div class="brand__title">Hermes</div>
+              <div class="brand__sub">Word · Doc selected: § "Mục tiêu Q4"</div>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <button class="btn btn--subtle btn--sm">↺ Làm lại</button>
+            <button class="btn btn--subtle btn--sm" id="newchat">＋ Cuộc trò chuyện mới</button>
+          </div>
+
+          <div class="status" data-state="busy" aria-live="polite">
+            <span>Đang soạn phương án… · ctx 2.1k tokens</span>
+          </div>
+        </header>
+
+        <div class="pane__divider"></div>
+
+        <div class="log" aria-live="polite">
+          <div class="msg msg--bot">Mình đọc xong đoạn "Mục tiêu Q4". Bạn muốn chỉnh sửa phần nào?</div>
+
+          <div class="msg msg--user">Rút gọn đoạn cuối, giữ ý chính.</div>
+
+          <div class="msg msg--bot">Đây là 3 thay đổi đề xuất. Kiểm tra rồi bấm <strong>Áp dụng</strong> để ghi vào Word.</div>
+
+          <!-- Proposal card -->
+          <div class="proposal" role="group" aria-label="3 phương án chỉnh sửa">
+            <div class="proposal__header">
+              <span>3 vị trí cần thay đổi</span>
+              <span class="muted">§ "Mục tiêu Q4"</span>
+            </div>
+            <div class="proposal__body">
+              <div class="diff diff--removed">
+                <div class="diff__label">Tìm</div>
+                <div class="diff__cell">"trong quý tới chúng ta sẽ tập trung vào tăng trưởng doanh thu và mở rộng thị trường khu vực phía Nam"</div>
+              </div>
+              <div class="diff diff--added">
+                <div class="diff__label">Thay bằng</div>
+                <div class="diff__cell">"trong quý tới, tăng trưởng doanh thu và mở rộng thị trường phía Nam"</div>
+              </div>
+
+              <div class="diff diff--removed">
+                <div class="diff__label">Tìm</div>
+                <div class="diff__cell">"việc này đòi hỏi toàn đội ngũ phải nỗ lực và phối hợp chặt chẽ hơn"</div>
+              </div>
+              <div class="diff diff--added">
+                <div class="diff__label">Thay bằng</div>
+                <div class="diff__cell">"đòi hỏi cả đội phối hợp chặt chẽ hơn"</div>
+              </div>
+
+              <div class="diff diff--removed">
+                <div class="diff__label">Tìm</div>
+                <div class="diff__cell">"hy vọng rằng với sự cố gắng này chúng ta sẽ đạt được kết quả tốt đẹp"</div>
+              </div>
+              <div class="diff diff--added">
+                <div class="diff__label">Thay bằng</div>
+                <div class="diff__cell">"kỳ vọng đạt kết quả tốt."</div>
+              </div>
+            </div>
+            <div class="proposal__footer">
+              <label class="checkbox">
+                <input type="checkbox" id="markRed" checked />
+                Tô đỏ phần thay đổi
+              </label>
+              <div style="display:flex; gap:8px;">
+                <button class="btn btn--subtle btn--sm">Bỏ qua</button>
+                <button class="btn btn--accent btn--sm" id="apply">✓ Áp dụng (3)</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Applied toast -->
+          <div class="toast toast--ok" role="status">
+            <span>Đã áp dụng 3 thay đổi · mất 1.2s</span>
+            <button class="btn btn--subtle btn--sm">Hoàn tác</button>
+          </div>
+        </div>
+
+        <div class="pane__divider"></div>
+
+        <footer class="pane__footer">
+          <div class="field">
+            <label class="field__label" for="prompt">Yêu cầu cho đoạn đang chọn</label>
+            <textarea
+              id="prompt"
+              class="textarea"
+              rows="2"
+              placeholder="VD: rút gọn 30%, giữ ý chính, đổi sang giọng trang trọng hơn…"
+              aria-describedby="prompt-hint"></textarea>
+            <span id="prompt-hint" class="field__hint">Enter để gửi · Shift+Enter xuống dòng · tối đa 4000 ký tự</span>
+          </div>
+          <div class="prompt-row">
+            <span></span>
+            <button class="btn btn--accent" id="ask">
+              <span>Gửi</span>
+              <kbd style="font:inherit; font-size:11px; opacity:.8;">⏎</kbd>
+            </button>
+          </div>
+        </footer>
+      </div>
+    </section>
+
+    <!-- ============== STAGE 2: EXCEL taskpane ============== -->
+    <section>
+      <div class="stage-label">Excel — sheet actions</div>
+
+      <div class="pane" role="region" aria-label="Hermes Excel taskpane">
+        <header class="pane__header">
+          <div class="brand">
+            <div class="brand__mark" aria-hidden="true">H</div>
+            <div>
+              <div class="brand__title">Hermes</div>
+              <div class="brand__sub">Excel · Sheet "Q4 forecast" · A1:F21 (sel D5:D9)</div>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <button class="btn btn--subtle btn--sm">↺ Làm lại</button>
+            <button class="btn btn--subtle btn--sm" id="newchat">＋ Cuộc trò chuyện mới</button>
+          </div>
+
+          <div class="status" aria-live="polite">
+            <span>Sẵn sàng. Snapshot 2.4 KB · 21 dòng × 6 cột.</span>
+          </div>
+        </header>
+
+        <div class="pane__divider"></div>
+
+        <div class="log" aria-live="polite">
+          <div class="msg msg--user">Tính % tăng trưởng YOY cho cột B, kèm format %.</div>
+
+          <div class="msg msg--bot">Mình sẽ điền công thức <code>(B-A)/A</code> vào cột mới. Kiểm tra rồi bấm Áp dụng.</div>
+
+          <div class="proposal" role="group" aria-label="4 hành động trên sheet">
+            <div class="proposal__header">
+              <span>4 hành động sẽ áp dụng</span>
+              <span class="muted">Sheet "Q4 forecast"</span>
+            </div>
+            <div class="proposal__body">
+              <div class="diff">
+                <div class="diff__label">setCell G2</div>
+                <div class="diff__cell">"YOY %"</div>
+              </div>
+              <div class="diff">
+                <div class="diff__label">setCells G3:G9</div>
+                <div class="diff__cell">=(B3-A3)/A3 … (B9-A9)/A9</div>
+              </div>
+              <div class="diff">
+                <div class="diff__label">format G3:G9</div>
+                <div class="diff__cell">numberFormat = 0.00% · bold</div>
+              </div>
+              <div class="diff">
+                <div class="diff__label">format A2:G2</div>
+                <div class="diff__cell">fill #D9E8F5 (header band)</div>
+              </div>
+            </div>
+            <div class="proposal__footer">
+              <span class="options">
+                <span class="checkbox"><input type="checkbox" checked /> Highlight ô mới</span>
+                <span class="muted">↩ Hoàn tác bằng Ctrl+Z sau khi áp dụng</span>
+              </span>
+              <div style="display:flex; gap:8px;">
+                <button class="btn btn--subtle btn--sm" id="apply">Bỏ qua</button>
+                <button class="btn btn--accent btn--sm">✓ Apply (4)</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="toast toast--ok" role="status">
+            <span>Applied 4/4 actions · 0 skipped · 380 ms</span>
+          </div>
+
+          <div class="toast toast--err" role="status">
+            <span>⚠ Sheet "Q3 forecast" không còn tồn tại. Hỏi lại Hermes.</span>
+          </div>
+        </div>
+
+        <div class="pane__divider"></div>
+
+        <footer class="pane__footer">
+          <div class="field">
+            <label class="field__label" for="prompt2">Yêu cầu cho sheet đang mở</label>
+            <textarea id="prompt2" class="textarea" rows="2" placeholder="VD: format cột B thành %, thêm cột YoY ở G…"></textarea>
+            <span class="field__hint">Snapshot gửi kèm · cap 30 KB</span>
+          </div>
+          <div class="prompt-row">
+            <span></span>
+            <button class="btn btn--accent">Gửi <kbd style="font:inherit; font-size:11px; opacity:.8;">⏎</kbd></button>
+          </div>
+        </footer>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

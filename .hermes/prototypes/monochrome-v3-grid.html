@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Monochrome V3 — Grid Instrument</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #000000;
+    --muted: #5c5c5c;
+    --line: #d0d0d0;
+    --line-2: #e8e8e8;
+    --line-3: #efefef;
+    --soft: #f7f7f7;
+    --hover: #1a1a1a;
+  }
+  .dark {
+    --bg: #000000;
+    --fg: #e8e8e8;
+    --muted: #7a7a7a;
+    --line: #303030;
+    --line-2: #1f1f1f;
+    --line-3: #141414;
+    --soft: #0c0c0c;
+    --hover: #d0d0d0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #e0e0e0; color: #111; font-family: 'Inter', -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { padding: 24px; min-height: 100vh; }
+  .mono { font-family: 'JetBrains Mono', 'Cascadia Mono', 'SF Mono', ui-monospace, monospace; }
+  .page-head { max-width: 1200px; margin: 0 auto 20px; display: flex; justify-content: space-between; align-items: center; }
+  .page-head h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+  .page-head .tag { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .page-tag { max-width: 1200px; margin: 0 auto 28px; font-size: 13px; color: var(--muted); border: 1px solid #111; padding: 12px 14px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .page-tag b { color: var(--fg); font-weight: 700; }
+  .grid { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .col-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg); margin-bottom: 14px; font-family: 'JetBrains Mono', monospace; }
+  .frame-wrap { display: flex; justify-content: center; }
+  .ctx-toggle { position: fixed; top: 16px; right: 16px; background: #fff; color: #000; border: 1px solid #000; border-radius: 0; padding: 7px 14px; font: 11px 'JetBrains Mono', monospace; font-weight: 600; cursor: pointer; z-index: 100; letter-spacing: 0.04em; }
+  .ctx-toggle:hover { background: #000; color: #fff; }
+
+  /* ===== Office-context frame (320x600) ===== */
+  .office-frame {
+    width: 320px; height: 600px;
+    background: var(--bg);
+    border: 1px solid var(--fg);
+    display: grid;
+    grid-template-rows: auto auto 1fr auto auto;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Header — technical bar */
+  .h-head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--fg);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    background: var(--fg);
+    color: var(--bg);
+  }
+  .h-brand {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .h-brand .corner {
+    width: 8px; height: 8px; background: var(--bg);
+  }
+  .h-status {
+    display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 500;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--bg);
+    justify-self: center;
+  }
+  .h-status .dot { width: 6px; height: 6px; background: var(--bg); }
+  .h-actions { display: flex; gap: 0; }
+  .h-icon-btn {
+    width: 26px; height: 26px;
+    background: transparent; border: none;
+    color: var(--bg); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    border-left: 1px solid rgba(255,255,255,0.2);
+  }
+  .h-icon-btn:hover { background: rgba(255,255,255,0.12); }
+  .h-icon-btn svg { width: 12px; height: 12px; }
+
+  /* Context bar — code-chip row */
+  .h-context {
+    padding: 8px 12px;
+    display: flex; gap: 4px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--line);
+    background: var(--soft);
+  }
+  .chip {
+    font: 500 10.5px 'JetBrains Mono', monospace;
+    padding: 4px 8px;
+    border: 1px solid var(--fg);
+    color: var(--fg);
+    background: var(--bg);
+    display: inline-flex; align-items: center; gap: 5px;
+    letter-spacing: 0;
+  }
+  .chip svg { width: 10px; height: 10px; }
+  .chip .k { opacity: 0.5; }
+
+  /* Log */
+  .log {
+    overflow-y: auto;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    background:
+      linear-gradient(var(--line-3) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line-3) 1px, transparent 1px);
+    background-size: 16px 16px, 16px 16px;
+    background-position: -1px -1px;
+  }
+  .log::-webkit-scrollbar { width: 4px; }
+  .log::-webkit-scrollbar-thumb { background: var(--fg); }
+
+  .msg { margin-bottom: 10px; display: flex; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.55; }
+  .msg.user { justify-content: flex-end; }
+  .msg.assistant { justify-content: flex-start; }
+  .bubble { max-width: 90%; padding: 7px 10px; border: 1px solid var(--fg); }
+  .msg.user .bubble { background: var(--fg); color: var(--bg); }
+  .msg.assistant .bubble { background: var(--bg); color: var(--fg); }
+  .msg.assistant.warn .bubble { background: repeating-linear-gradient(45deg, var(--bg), var(--bg) 4px, var(--line-2) 4px, var(--line-2) 8px); border-color: var(--fg); border-style: dashed; }
+  .msg.assistant.err .bubble { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .msg .meta { font-size: 9px; color: var(--muted); margin-top: 3px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .msg.user .meta { text-align: right; }
+
+  /* Proposal card — block border, grid layout */
+  .proposal {
+    margin: 0 12px 12px;
+    border: 1px solid var(--fg);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  .prop-head {
+    padding: 8px 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    border-bottom: 1px solid var(--fg);
+    background: var(--bg);
+  }
+  .prop-title { font: 700 11.5px 'JetBrains Mono', monospace; letter-spacing: 0.02em; }
+  .prop-title::before { content: '> '; opacity: 0.6; }
+  .prop-tag { font: 500 9.5px 'JetBrains Mono', monospace; padding: 3px 7px; background: var(--fg); color: var(--bg); letter-spacing: 0.06em; }
+
+  /* ASCII divider */
+  .ascii-div { padding: 4px 12px; font: 9px 'JetBrains Mono', monospace; color: var(--muted); border-bottom: 1px solid var(--line); background: var(--soft); overflow: hidden; letter-spacing: 0.02em; }
+
+  .prop-list { padding: 0; }
+  .prop-action {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line-2);
+    font-size: 11.5px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+  .prop-action:last-child { border-bottom: none; }
+  .prop-action .idx { font: 700 10.5px 'JetBrains Mono', monospace; opacity: 0.45; padding-top: 1px; }
+  .prop-action .body { min-width: 0; }
+  .prop-action .label { display: flex; gap: 6px; align-items: center; font-weight: 600; font-size: 12px; }
+  .prop-action .label svg { width: 11px; height: 11px; }
+  .prop-action .diff { margin-top: 5px; display: grid; gap: 2px; font: 10.5px 'JetBrains Mono', monospace; }
+  .diff-old, .diff-new { padding: 4px 7px; }
+  .diff-old { background: var(--soft); color: var(--muted); text-decoration: line-through; border-left: 2px solid var(--muted); }
+  .diff-old::before { content: '- '; opacity: 0.6; }
+  .diff-new { background: var(--fg); color: var(--bg); border-left: 2px solid var(--fg); }
+  .diff-new::before { content: '+ '; opacity: 0.8; }
+
+  .prop-foot { padding: 10px 12px; border-top: 1px solid var(--fg); display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+  .btn { font: 600 11px 'JetBrains Mono', monospace; padding: 8px 10px; cursor: pointer; border: 1px solid var(--fg); text-transform: uppercase; letter-spacing: 0.06em; }
+  .btn-primary { background: var(--fg); color: var(--bg); }
+  .btn-primary:hover { background: var(--hover); }
+  .btn-ghost { background: var(--bg); color: var(--fg); }
+  .btn-ghost:hover { background: var(--soft); }
+
+  /* Footer */
+  .foot {
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--fg);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: end;
+    background: var(--bg);
+  }
+  .foot textarea {
+    resize: none;
+    border: 1px solid var(--fg);
+    padding: 8px 10px;
+    font: 11.5px 'JetBrains Mono', monospace;
+    color: var(--fg);
+    background: var(--bg);
+    outline: none;
+    min-height: 38px; max-height: 80px;
+  }
+  .foot textarea::placeholder { color: var(--muted); }
+  .foot textarea:focus { background: var(--soft); }
+  .send-btn {
+    width: 38px; height: 38px;
+    background: var(--fg); color: var(--bg);
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .send-btn svg { width: 14px; height: 14px; }
+  .send-btn:disabled { opacity: 0.3; }
+  .send-btn:hover:not(:disabled) { background: var(--hover); }
+
+  /* Toast — terminal style */
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg);
+    padding: 7px 14px;
+    font: 600 11px 'JetBrains Mono', monospace; letter-spacing: 0.04em;
+    border: 1px solid var(--fg);
+    display: flex; align-items: center; gap: 8px;
+    z-index: 50;
+  }
+  .toast::before { content: '[OK]'; opacity: 0.8; font-weight: 700; }
+  .toast svg { width: 12px; height: 12px; display: none; }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>Hermes Office — Taskpane Variants</h1>
+    <span class="tag">V3 · GRID · 320x600</span>
+  </div>
+  <div class="page-tag">
+    <span style="color:#888">// </span><b>Grid instrument.</b> Mono accents for status/code, sans for body, ASCII dividers, dashed warn. GitHub Primer / Raycast tone — built for power users.
+  </div>
+
+  <button class="ctx-toggle" onclick="toggleCtx()">[ ctx ]</button>
+
+  <div class="grid">
+    <div>
+      <div class="col-title">[ light ] default</div>
+      <div class="frame-wrap" id="frameA"></div>
+    </div>
+    <div>
+      <div class="col-title">[ dark ] pure B/W</div>
+      <div class="frame-wrap" id="frameB"></div>
+    </div>
+  </div>
+
+<script>
+function toggleCtx() {
+  const f = document.getElementById('frameA');
+  if (f.style.maxWidth === '320px') {
+    f.style.maxWidth = '';
+  } else {
+    f.style.maxWidth = '320px';
+    f.style.overflow = 'hidden';
+  }
+}
+
+function renderTaskpane(mode) {
+  return `
+  <div class="office-frame ${mode}">
+    <div class="h-head">
+      <div class="h-brand">
+        <span class="corner"></span>
+        HERMES
+      </div>
+      <div class="h-status"><span class="dot"></span>READY</div>
+      <div class="h-actions">
+        <button class="h-icon-btn" title="New chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="h-context">
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/></svg><span class="k">ctx=</span>Sheet1</span>
+      <span class="chip"><span class="k">rng=</span>A1:D24</span>
+      <span class="chip"><span class="k">pin=</span>3</span>
+    </div>
+    <div class="log">
+      <div class="msg user">
+        <div><div class="bubble">Tô màu revenue &gt; 100K vàng nhạt, &lt;50K đỏ nhạt.</div><div class="meta">[10:24]</div></div>
+      </div>
+      <div class="msg assistant">
+        <div><div class="bubble">Sẽ apply conditional formatting cho 24 ô, range A2:D25. Xem preview bên dưới.</div><div class="meta">[10:24]</div></div>
+      </div>
+      <div class="msg assistant warn">
+        <div><div class="bubble">WARN: 3 ô merged cells, sẽ skip.</div><div class="meta">[10:24]</div></div>
+      </div>
+      <div class="msg assistant err">
+        <div><div class="bubble">ERR: Sheet2 protected — không ghi được.</div><div class="meta">[10:25]</div></div>
+      </div>
+    </div>
+    <div class="proposal">
+      <div class="prop-head">
+        <span class="prop-title">conditional.format()</span>
+        <span class="prop-tag">3 ACTIONS</span>
+      </div>
+      <div class="ascii-div">────────────────────────────────────────────────────────────</div>
+      <div class="prop-list">
+        <div class="prop-action">
+          <div class="idx">[1]</div>
+          <div class="body">
+            <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M14 3h7v7h-7zM3 14h7v7H3z"/></svg> 3-color scale → A2:D25</div>
+            <div class="diff"><div class="diff-old">No formatting</div><div class="diff-new">scale: white #000</div></div>
+          </div>
+        </div>
+        <div class="prop-action">
+          <div class="idx">[2]</div>
+          <div class="body">
+            <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg> bold rows revenue &gt; 100K</div>
+            <div class="diff"><div class="diff-old">font-weight: 400</div><div class="diff-new">font-weight: 700</div></div>
+          </div>
+        </div>
+        <div class="prop-action">
+          <div class="idx">[3]</div>
+          <div class="body">
+            <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg> freeze top row</div>
+            <div class="diff"><div class="diff-old">No freeze</div><div class="diff-new">Freeze pane A2</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="prop-foot">
+        <button class="btn btn-ghost">DISCARD</button>
+        <button class="btn btn-primary">APPLY ALL</button>
+      </div>
+    </div>
+    <div class="foot">
+      <textarea placeholder="> ask Hermes…"></textarea>
+      <button class="send-btn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="toast">proposal ready</div>`;
+}
+
+document.getElementById('frameA').innerHTML = renderTaskpane('light');
+document.getElementById('frameB').innerHTML = renderTaskpane('dark');
+</script>
+</body>
+</html>

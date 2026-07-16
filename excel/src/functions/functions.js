@@ -5,7 +5,10 @@ function ikey(name, args) {
   return name + ":" + JSON.stringify(args);
 }
 function clean(s) {
-  return String(s).trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+  return String(s)
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
 }
 
 /**
@@ -17,7 +20,12 @@ function clean(s) {
  */
 export async function classify(value, instruction) {
   const out = await askHermes(
-    [{ role: "user", content: `Classify the text per this instruction: ${instruction}.\nReply with ONLY the label, no punctuation.\n\nText: ${value}` }],
+    [
+      {
+        role: "user",
+        content: `Classify the text per this instruction: ${instruction}.\nReply with ONLY the label, no punctuation.\n\nText: ${value}`,
+      },
+    ],
     { idempotencyKey: ikey("CLASSIFY", [value, instruction]) }
   );
   return clean(out);
@@ -32,7 +40,12 @@ export async function classify(value, instruction) {
  */
 export async function extract(value, what) {
   const out = await askHermes(
-    [{ role: "user", content: `Extract the ${what} from the text. Reply with ONLY the value, or an empty string if none.\n\nText: ${value}` }],
+    [
+      {
+        role: "user",
+        content: `Extract the ${what} from the text. Reply with ONLY the value, or an empty string if none.\n\nText: ${value}`,
+      },
+    ],
     { idempotencyKey: ikey("EXTRACT", [value, what]) }
   );
   return clean(out);
@@ -46,7 +59,12 @@ export async function extract(value, what) {
  */
 export async function summarize(values) {
   const out = await askHermes(
-    [{ role: "user", content: `Summarize this data in ONE short sentence:\n${JSON.stringify(values)}` }],
+    [
+      {
+        role: "user",
+        content: `Summarize this data in ONE short sentence:\n${JSON.stringify(values)}`,
+      },
+    ],
     { idempotencyKey: ikey("SUMMARIZE", values) }
   );
   return clean(out);
@@ -60,7 +78,12 @@ export async function summarize(values) {
  */
 export async function formulaHelp(goal) {
   const out = await askHermes(
-    [{ role: "user", content: `Give a single Excel formula that accomplishes: ${goal}. Reply with ONLY the formula, starting with =.` }],
+    [
+      {
+        role: "user",
+        content: `Give a single Excel formula that accomplishes: ${goal}. Reply with ONLY the formula, starting with =.`,
+      },
+    ],
     { idempotencyKey: ikey("FORMULA_HELP", [goal]) }
   );
   return clean(out);

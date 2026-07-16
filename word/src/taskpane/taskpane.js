@@ -2,8 +2,21 @@
 
 import { askHermes } from "../shared/hermes.js";
 // Pure helpers deduped with the Excel taskpane via the repo-root shared/
-// folder (no npm workspace between the two add-ins) — see shared/parsers.js.
-import { columnIndexToLetters, columnLettersToIndex, parseEdits, parseTableChanges } from "../../../shared/parsers.js";
+// folder (no npm workspace between the two add-ins) — see shared/parsers.js
+// and shared/proposal-card.js. The proposal-card re-exports the parser
+// helpers we used to import directly so we still have them in scope.
+import {
+  columnIndexToLetters,
+  columnLettersToIndex,
+  parseWordEdits,
+  parseWordTableChanges,
+  appendMessage,
+  setStatus as setStatusUi,
+  setBusy as setBusyUi,
+  showToast,
+  mountContextBar,
+  renderProposalCard,
+} from "../../../shared/proposal-card.js";
 
 // Full-document mode sends the whole open document to Hermes as context;
 // cap it so a large file doesn't blow up the request payload / token budget.
@@ -25,8 +38,21 @@ Office.onReady().then(() => {
   const markRedWrap = document.getElementById("markRedWrap");
   const newChatBtn = document.getElementById("newchat");
   const statusEl = document.getElementById("status");
+  const statusRowEl = document.getElementById("statusRow");
   const preview = document.getElementById("preview");
+  // Context chips render into their own row below the status bar — falling
+  // back to the header keeps older templates (chips inline) working.
+  const contextHost =
+    document.getElementById("contextRow") ||
+    document.querySelector(".ds-header") ||
+    document.querySelector("header") ||
+    document.body;
 
+  // State — declared BEFORE refreshContextBar() because that function reads
+  // pinnedSelectionText. Calling refreshContextBar() before these lets exist
+  // would throw a ReferenceError and abort the whole Office.onReady() chain,
+  // leaving zero event listeners attached (which is why Enter and the Send
+  // button did nothing in the field).
   let messages = [];
   let lastProposal = null;
   // Snapshot of the text range captured at send time, used as a fallback
@@ -43,16 +69,46 @@ Office.onReady().then(() => {
   // read the pin mid-flight and resolve the PREVIOUS passage.
   let pendingPin = Promise.resolve();
 
+  // Context bar lives in its own row under the status bar — re-rendered
+  // cheaply on every send/apply so the user always sees what range/pin state
+  // is going to Hermes next.
+  function refreshContextBar(extra) {
+    const chips = [];
+    if (pinnedSelectionText) {
+      chips.push({
+        label: "Pinned",
+        value: pinnedSelectionText.slice(0, 60),
+        state: "pinned",
+      });
+    }
+    if (extra && extra.snapshot) {
+      chips.push({ label: "Snapshot", value: extra.snapshot });
+    }
+    if (extra && extra.willTruncate) {
+      chips.push({
+        label: "⚠ Cắt bớt",
+        value: extra.willTruncate,
+        state: "warn",
+      });
+    }
+    if (!chips.length) chips.push({ label: "Sẵn sàng", value: "" });
+    mountContextBar(contextHost, chips);
+  }
+  refreshContextBar();
+
   function addMsg(role, text) {
-    const div = document.createElement("div");
-    div.className = `msg ${role === "user" ? "user" : "bot"}`;
-    div.textContent = text;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    return appendMessage(log, role, text);
   }
 
-  function setStatus(text) {
-    statusEl.textContent = text;
+  function setStatus(text, tone) {
+    setStatusUi(statusEl, text, { tone });
+    // Mirror the tone onto the row so the whole bar can tint (busy) or
+    // change its dot (err) — the row wraps the dot, which sits OUTSIDE
+    // #status so setStatusUi's textContent write can't wipe it.
+    if (statusRowEl) {
+      if (tone) statusRowEl.dataset.tone = tone;
+      else delete statusRowEl.dataset.tone;
+    }
   }
 
   // Escapes text before it is interpolated into an innerHTML template, so
@@ -74,10 +130,12 @@ Office.onReady().then(() => {
   function wordRunWithRetry(fn, retries = 3) {
     return new Promise((resolve, reject) => {
       const attempt = (n) => {
-        Word.run(fn).then(resolve).catch((err) => {
-          if (n <= 1) reject(err);
-          else setTimeout(() => attempt(n - 1), 350);
-        });
+        Word.run(fn)
+          .then(resolve)
+          .catch((err) => {
+            if (n <= 1) reject(err);
+            else setTimeout(() => attempt(n - 1), 350);
+          });
       };
       attempt(retries);
     });
@@ -100,7 +158,8 @@ Office.onReady().then(() => {
         Office.FileType.Text,
         { sliceSize: 65536 },
         (result) => {
-          if (result.status !== Office.AsyncResultStatus.Succeeded) return resolve("");
+          if (result.status !== Office.AsyncResultStatus.Succeeded)
+            return resolve("");
           const file = result.value;
           const sliceCount = file.sliceCount;
           let cur = 0;
@@ -122,7 +181,7 @@ Office.onReady().then(() => {
             });
           };
           next();
-        }
+        },
       );
     });
   }
@@ -182,7 +241,8 @@ Office.onReady().then(() => {
         // Note: the Word JS API has no document.bookmarks collection (that's
         // the VBA object model) — bookmarks are reached via this Document
         // method, which returns the bookmark's Range directly.
-        const range = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        const range =
+          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
         range.load(["isNullObject", "text"]);
         return context.sync().then(() => {
           if (range.isNullObject) return null;
@@ -207,17 +267,24 @@ Office.onReady().then(() => {
     if (!Office.context.requirements.isSetSupported("WordApi", "1.4")) return;
     try {
       await wordRunWithRetry(async (context) => {
-        const bmRange = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        const bmRange =
+          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
         bmRange.load(["isNullObject", "text"]);
         const sel = context.document.getSelection();
         sel.load("text");
         await context.sync();
-        if (!bmRange.isNullObject && (bmRange.text || "").trim() === expectedText) return;
+        if (
+          !bmRange.isNullObject &&
+          (bmRange.text || "").trim() === expectedText
+        )
+          return;
         let target = null;
         if ((sel.text || "").trim() === expectedText) {
           target = sel;
         } else if (expectedText.length <= MAX_SEARCH_LEN) {
-          const ranges = context.document.body.search(expectedText, { matchCase: false });
+          const ranges = context.document.body.search(expectedText, {
+            matchCase: false,
+          });
           ranges.load("items");
           await context.sync();
           if (ranges.items.length > 0) target = ranges.items[0];
@@ -282,8 +349,12 @@ Office.onReady().then(() => {
     // Only enter table mode if the table actually has data. An empty
     // placeholder table (e.g. a lone blank row) must not hijack the flow
     // and hide the rest of the document — fall through to full-doc instead.
-    const tableHasData = tableRows && tableRows.length > 0 &&
-      tableRows.some((t) => t.values.flat().some((v) => (v || "").trim().length > 0));
+    const tableHasData =
+      tableRows &&
+      tableRows.length > 0 &&
+      tableRows.some((t) =>
+        t.values.flat().some((v) => (v || "").trim().length > 0),
+      );
     if (tableHasData) {
       return { type: "table", tables: tableRows, rawText: selText };
     }
@@ -345,8 +416,14 @@ Office.onReady().then(() => {
         rangeRows.push(rangeRow);
       }
       await context.sync();
-      const values = rangeRows.map((rangeRow) => rangeRow.map((range) => (range.text || "").trim()));
-      rows.push({ rowCount: table.rowCount, columnCount: table.columnCount, values });
+      const values = rangeRows.map((rangeRow) =>
+        rangeRow.map((range) => (range.text || "").trim()),
+      );
+      rows.push({
+        rowCount: table.rowCount,
+        columnCount: table.columnCount,
+        values,
+      });
     }
     return rows;
   }
@@ -376,10 +453,14 @@ Office.onReady().then(() => {
   }
 
   function formatTablePreview(tbl) {
-    const flat = tbl.values.map((row, ri) => {
-      const cells = row.map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`).join("\n");
-      return `Row ${ri + 1}:\n${cells}`;
-    }).join("\n\n");
+    const flat = tbl.values
+      .map((row, ri) => {
+        const cells = row
+          .map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`)
+          .join("\n");
+        return `Row ${ri + 1}:\n${cells}`;
+      })
+      .join("\n\n");
     return `${tbl.rowCount} rows x ${tbl.columnCount} cols\n\n${flat}`;
   }
 
@@ -393,9 +474,12 @@ Office.onReady().then(() => {
     if (data.type === "table") {
       let tableDesc = "";
       if (data.tables && data.tables.length > 0) {
-        tableDesc = data.tables.map((t, i) =>
-          `TABLE ${i + 1} (${t.rowCount} rows x ${t.columnCount} cols):\n${formatTablePreview(t)}`
-        ).join("\n\n");
+        tableDesc = data.tables
+          .map(
+            (t, i) =>
+              `TABLE ${i + 1} (${t.rowCount} rows x ${t.columnCount} cols):\n${formatTablePreview(t)}`,
+          )
+          .join("\n\n");
       }
       return `You are editing a table in a Word document. Each cell is labeled [ColRow] (e.g. [A1] = first column, first row). Below is the current table data. The user will ask you to modify it.
 
@@ -451,12 +535,13 @@ ${data.text}`;
 
     addMsg("user", userText);
     input.value = "";
-    askBtn.disabled = true;
-    setStatus("Reading document…");
+    setBusyUi(askBtn, true);
+    setStatus("Reading document…", "busy");
     lastProposal = null;
     applyBtn.style.display = "none";
     markRedWrap.style.display = "none";
     preview.innerHTML = "";
+    refreshContextBar({ snapshot: "Đang đọc tài liệu…" });
 
     try {
       const selectionData = await getSelectionData();
@@ -469,21 +554,30 @@ ${data.text}`;
       }
 
       if (selectionData.type === "empty") {
-        addMsg("bot", "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.");
+        addMsg(
+          "bot",
+          "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.",
+        );
         setStatus("Không có văn bản (doc trống / chưa sync xong). Thử lại.");
         return;
       }
 
       let docText = selectionData.text || "";
-      const fulldocTruncated = selectionData.type === "fulldoc" && docText.length > MAX_FULLDOC_CHARS;
+      const fulldocTruncated =
+        selectionData.type === "fulldoc" && docText.length > MAX_FULLDOC_CHARS;
       if (fulldocTruncated) {
-        docText = docText.slice(0, MAX_FULLDOC_CHARS) + `\n\n[... còn ${docText.length - MAX_FULLDOC_CHARS} ký tự nữa ...]`;
+        docText =
+          docText.slice(0, MAX_FULLDOC_CHARS) +
+          `\n\n[... còn ${docText.length - MAX_FULLDOC_CHARS} ký tự nữa ...]`;
       }
       const displayData = { ...selectionData, text: docText };
 
-      const statusText = selectionData.type === "fulldoc"
-        ? `${selectionData.text.length} chars from full document`
-        : (selectionData.text ? `${selectionData.text.length} chars selected` : "Table selected");
+      const statusText =
+        selectionData.type === "fulldoc"
+          ? `${selectionData.text.length} chars from full document`
+          : selectionData.text
+            ? `${selectionData.text.length} chars selected`
+            : "Table selected";
       const truncationWarning = fulldocTruncated
         ? ` ⚠ Tài liệu vượt quá ${MAX_FULLDOC_CHARS} ký tự — chỉ ${MAX_FULLDOC_CHARS} ký tự đầu được gửi tới Hermes.`
         : "";
@@ -501,43 +595,69 @@ ${data.text}`;
       addMsg("bot", reply);
 
       if (selectionData.type === "table") {
-        const tableChanges = parseTableChanges(reply);
+        const tableChanges = parseWordTableChanges(reply);
         if (tableChanges.length > 0) {
           lastProposal = { type: "table", changes: tableChanges };
-          preview.innerHTML = tableChanges.map(c =>
-            `<div class="act">Set ${escapeHtml(c.cell)} → "${escapeHtml(c.value)}"</div>`
-          ).join("");
+          // Render via the shared card so Word and Excel get the same visual
+          // treatment for proposals. tableChanges here are plain {cell, value}
+          // records, so we normalise them into the standard replace action
+          // shape that describeAction() understands.
+          renderProposalCard(preview, {
+            title: "Cập nhật bảng đã chọn",
+            actions: tableChanges.map((c) => ({
+              type: "setCell",
+              cell: c.cell,
+              old: c.value,
+              new: c.value,
+            })),
+            primaryLabel: "Áp dụng",
+          });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
         }
       } else if (selectionData.type === "text") {
         lastProposal = { type: "text", text: reply };
-        preview.innerHTML = `
-          <div class="act">Proposed edit:</div>
-          <div class="msg bot">${escapeHtml(reply).replace(/\n/g, "<br>")}</div>
-        `;
+        renderProposalCard(preview, {
+          title: "Đề xuất chỉnh sửa đoạn đã chọn",
+          actions: [
+            { type: "replace", find: capturedSelectionText, replace: reply },
+          ],
+          primaryLabel: "Áp dụng",
+        });
         applyBtn.style.display = "block";
         markRedWrap.style.display = "flex";
       } else if (selectionData.type === "fulldoc") {
         // Prefer inline edits (fix spelling etc.) — only the wrong spots change.
-        const edits = parseEdits(reply);
+        const edits = parseWordEdits(reply);
         if (edits.length > 0) {
           lastProposal = { type: "fulldoc-edits", edits };
-          preview.innerHTML = edits.map(e =>
-            `<div class="act">"${escapeHtml(e.find)}" → "${escapeHtml(e.replace)}"</div>`
-          ).join("") + `<div class="act">Áp dụng cho mọi vị trí (giữ nguyên định dạng).</div>`;
+          renderProposalCard(preview, {
+            title: "Sửa nhanh toàn văn bản",
+            actions: edits.map((e) => ({
+              type: "replace",
+              find: e.find,
+              replace: e.replace,
+            })),
+            primaryLabel: "Áp dụng",
+          });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
         } else if (reply.trim().length > selectionData.text.length * 0.5) {
           // Looks like a full rewrite / translation → replace whole doc.
           lastProposal = { type: "fulldoc-full", text: reply };
-          preview.innerHTML = `<div class="act">Sẽ THAY THẾ TOÀN BỘ văn bản bằng kết quả trên.</div>`;
+          renderProposalCard(preview, {
+            title: "Thay thế toàn bộ văn bản",
+            actions: [
+              { type: "insert", location: "toàn văn bản", text: reply },
+            ],
+            primaryLabel: "Thay thế",
+          });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
         } else {
           // Plain answer / review — nothing to apply.
           lastProposal = null;
-          preview.innerHTML = `<div class="act">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div>`;
+          preview.innerHTML = `<div class="ds-card-action"><div class="label">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div></div>`;
           applyBtn.style.display = "none";
           markRedWrap.style.display = "none";
         }
@@ -548,10 +668,10 @@ ${data.text}`;
       setStatus("Ready.");
     } catch (err) {
       const errMsg = err.message || String(err);
-      addMsg("bot", errMsg);
-      setStatus("Error.");
+      addMsg("bot", errMsg, { tone: "err" });
+      setStatus("Error.", "err");
     } finally {
-      askBtn.disabled = false;
+      setBusyUi(askBtn, false);
       input.focus();
     }
   }
@@ -561,7 +681,8 @@ ${data.text}`;
     if (!match) return null;
     const col = columnLettersToIndex(match[1].toUpperCase());
     const row = parseInt(match[2], 10) - 1;
-    if (col < 0 || col >= columnCount || row < 0 || row >= rowCount) return null;
+    if (col < 0 || col >= columnCount || row < 0 || row >= rowCount)
+      return null;
     return { row, col };
   }
 
@@ -576,7 +697,7 @@ ${data.text}`;
     const markRedEl = document.getElementById("markRed");
     const markRed = markRedEl && markRedEl.checked;
 
-    setStatus("Applying…");
+    setStatus("Applying…", "busy");
     let editStats = null;
     try {
       if (lastProposal.type === "table") {
@@ -585,15 +706,24 @@ ${data.text}`;
           sel.tables.load("items");
           await context.sync();
           const table = sel.tables.items[0];
-          if (!table) throw new Error("Không tìm thấy bảng đã chọn. Hãy chọn lại bảng rồi Apply.");
+          if (!table)
+            throw new Error(
+              "Không tìm thấy bảng đã chọn. Hãy chọn lại bảng rồi Apply.",
+            );
           table.load(["rowCount", "columnCount"]);
           await context.sync();
 
           for (const change of lastProposal.changes) {
-            const pos = cellRefToPosition(change.cell, table.rowCount, table.columnCount);
+            const pos = cellRefToPosition(
+              change.cell,
+              table.rowCount,
+              table.columnCount,
+            );
             if (!pos) continue;
             const cell = table.getCell(pos.row, pos.col);
-            const inserted = cell.body.getRange().insertText(String(change.value), "Replace");
+            const inserted = cell.body
+              .getRange()
+              .insertText(String(change.value), "Replace");
             if (markRed) inserted.font.color = "#FF0000";
           }
           await context.sync();
@@ -607,9 +737,14 @@ ${data.text}`;
           let applied = 0;
           let skipped = 0;
           for (const edit of lastProposal.edits) {
-            if (!edit.find || edit.find.length > MAX_SEARCH_LEN) { skipped++; continue; }
+            if (!edit.find || edit.find.length > MAX_SEARCH_LEN) {
+              skipped++;
+              continue;
+            }
             try {
-              const ranges = context.document.body.search(edit.find, { matchCase: false });
+              const ranges = context.document.body.search(edit.find, {
+                matchCase: false,
+              });
               ranges.load("items");
               await context.sync();
               ranges.items.forEach((r) => {
@@ -642,32 +777,49 @@ ${data.text}`;
         await Word.run(async (context) => {
           // Bookmark APIs need WordApi 1.4 — on older hosts skip straight to
           // the search fallback instead of throwing mid-batch.
-          const canUseBookmark = Office.context.requirements.isSetSupported("WordApi", "1.4");
+          const canUseBookmark = Office.context.requirements.isSetSupported(
+            "WordApi",
+            "1.4",
+          );
           let bmRange = null;
           let bmText = null;
           if (canUseBookmark) {
-            bmRange = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+            bmRange =
+              context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
             bmRange.load(["isNullObject", "text"]);
             await context.sync();
             if (!bmRange.isNullObject) bmText = (bmRange.text || "").trim();
           }
           const bookmarkMatchesProposal =
-            bmText !== null && (!capturedSelectionText || bmText === capturedSelectionText);
+            bmText !== null &&
+            (!capturedSelectionText || bmText === capturedSelectionText);
           let inserted = null;
           if (bookmarkMatchesProposal) {
             inserted = bmRange.insertText(lastProposal.text, "Replace");
-          } else if (capturedSelectionText && capturedSelectionText.length <= MAX_SEARCH_LEN) {
-            const ranges = context.document.body.search(capturedSelectionText, { matchCase: false });
+          } else if (
+            capturedSelectionText &&
+            capturedSelectionText.length <= MAX_SEARCH_LEN
+          ) {
+            const ranges = context.document.body.search(capturedSelectionText, {
+              matchCase: false,
+            });
             ranges.load("items");
             await context.sync();
             if (ranges.items.length > 0) {
-              inserted = ranges.items[0].insertText(lastProposal.text, "Replace");
+              inserted = ranges.items[0].insertText(
+                lastProposal.text,
+                "Replace",
+              );
             } else {
-              throw new Error("Không tìm thấy đoạn văn bản đã chọn để thay thế. Hãy chọn lại đoạn đó rồi Apply.");
+              throw new Error(
+                "Không tìm thấy đoạn văn bản đã chọn để thay thế. Hãy chọn lại đoạn đó rồi Apply.",
+              );
             }
           } else if (capturedSelectionText) {
             // Too long to search for and the bookmark no longer matches it.
-            throw new Error("Đoạn văn bản gốc không còn được ghim. Hãy chọn lại đoạn cần thay rồi hỏi lại.");
+            throw new Error(
+              "Đoạn văn bản gốc không còn được ghim. Hãy chọn lại đoạn cần thay rồi hỏi lại.",
+            );
           } else {
             throw new Error("Không có văn bản được chọn để áp dụng.");
           }
@@ -681,20 +833,29 @@ ${data.text}`;
         pinnedSelectionText = lastProposal.text.trim();
         capturedSelectionText = pinnedSelectionText;
       }
-      const n = lastProposal.type === "table" ? lastProposal.changes.length
-        : editStats ? editStats.applied : 1;
-      const skippedNote = editStats && editStats.skipped > 0
-        ? ` (${editStats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
-        : "";
-      addMsg("bot", `Applied ${n} action(s).${skippedNote}`);
+      const n =
+        lastProposal.type === "table"
+          ? lastProposal.changes.length
+          : editStats
+            ? editStats.applied
+            : 1;
+      const skippedNote =
+        editStats && editStats.skipped > 0
+          ? ` (${editStats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
+          : "";
+      addMsg("bot", `Applied ${n} action(s).${skippedNote}`, { tone: "ok" });
+      showToast(`Applied ${n} action(s).${skippedNote}`, { tone: "ok" });
       lastProposal = null;
       preview.innerHTML = "";
       applyBtn.style.display = "none";
       markRedWrap.style.display = "none";
       setStatus("Ready.");
+      refreshContextBar();
     } catch (err) {
-      setStatus("Apply failed: " + (err.message || err));
-      addMsg("bot", "⚠ Apply failed: " + (err.message || err));
+      const errText = "⚠ Apply failed: " + (err.message || err);
+      setStatus(errText, "err");
+      addMsg("bot", errText, { tone: "err" });
+      showToast(errText, { tone: "err", timeout: 6000 });
     }
   }
 
@@ -716,6 +877,7 @@ ${data.text}`;
     const markRedEl = document.getElementById("markRed");
     if (markRedEl) markRedEl.checked = true;
     setStatus("New chat. Select text and ask me to edit it.");
+    refreshContextBar();
   }
 
   registerSelectionChangedHandler();

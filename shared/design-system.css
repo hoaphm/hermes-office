@@ -1,0 +1,926 @@
+/* Hermes Office design system — V2 Bold (monochrome chrome + brand accent).
+ * B/W neutrals (≤6 shades) + a 2-color invert trick (--invert / --invert-fg)
+ * to flip header and primary CTA without re-templating the HTML, plus ONE
+ * brand accent per host scoped by a body class: `body.theme-word` (blue) /
+ * `body.theme-excel` (green). Without a theme class the accent tokens fall
+ * back to the neutral fg/bg pair, so unthemed pages stay pure monochrome.
+ *
+ * Voice: Linear / Stripe Press / Vercel marketing — 2px borders, 14px radius,
+ * weight contrast (500 body / 700 label), uppercase mini-labels with wide
+ * tracking. No shadows, no gradients; color only on the accent tokens.
+ *
+ * Spacing follows a 4px grid. Type is Inter with SF fallback (Office hosts
+ * never need a font CDN — the system stack is good enough).
+ */
+:root {
+  /* Pure B/W ramp — every other color resolves through these. */
+  --bg: #ffffff;
+  --fg: #000000;
+  --muted: #707070;
+  --line: #d4d4d4;
+  --line-2: #ebebeb;
+  --soft: #f6f6f6;
+  /* Invert pair — used by header, primary CTA, .diff-new, .prop-head-on-dark.
+   * Pinned to fg/bg so a dark-mode swap only flips these two. */
+  --invert: #000;
+  --invert-fg: #fff;
+
+  /* Brand accent — neutral fallbacks; each host overrides via body.theme-*.
+   * --accent drives the primary CTA / send / status dot / brand mark,
+   * --accent-soft is a tint-level surface, --accent-ink is text ON accent. */
+  --accent: var(--fg);
+  --accent-hover: var(--fg);
+  --accent-soft: var(--soft);
+  --accent-ink: var(--bg);
+
+  /* Type stack. */
+  --font-ui: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, monospace;
+
+  /* Type scale — small, dense, designed for 320px column. */
+  --fs-100: 10.5px;
+  --fs-200: 12px;
+  --fs-300: 13px;
+  --fs-400: 14px;
+  --fs-500: 16px;
+  --lh-tight: 1.3;
+  --lh-normal: 1.5;
+
+  /* 4px grid. */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 10px;
+  --sp-4: 14px;
+  --sp-5: 20px;
+
+  /* Radii. */
+  --r-1: 6px;
+  --r-2: 8px;
+  --r-pill: 999px;
+
+  /* Border weights — the only "weight system" we have, kept on purpose. */
+  --bw-1: 1px;
+  --bw-2: 1.5px;
+  --bw-3: 2px;
+
+  --easing: cubic-bezier(0.33, 0, 0.67, 1);
+  --t-fast: 120ms;
+}
+
+/* Per-host brand accent. Word = Office blue, Excel = Office green.
+ * Light-mode accents are dark enough to carry white ink (≥4.5:1). */
+body.theme-word {
+  --accent: #185abd;
+  --accent-hover: #124a9e;
+  --accent-soft: #deecf9;
+  --accent-ink: #ffffff;
+}
+
+body.theme-excel {
+  --accent: #107c41;
+  --accent-hover: #0b5c30;
+  --accent-soft: #daefdc;
+  --accent-ink: #ffffff;
+}
+
+/* Dark hosts flip to LIGHTER accents with dark ink, so the same components
+ * keep their contrast on the near-black background. */
+body.theme-word.dark,
+.dark body.theme-word {
+  --accent: #6cb2f5;
+  --accent-hover: #8ec4f8;
+  --accent-soft: #102a43;
+  --accent-ink: #0a0a0a;
+}
+
+body.theme-excel.dark,
+.dark body.theme-excel {
+  --accent: #55c188;
+  --accent-hover: #79cfa1;
+  --accent-soft: #0c2b1c;
+  --accent-ink: #0a0a0a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) body.theme-word {
+    --accent: #6cb2f5;
+    --accent-hover: #8ec4f8;
+    --accent-soft: #102a43;
+    --accent-ink: #0a0a0a;
+  }
+
+  :root:not(.light) body.theme-excel {
+    --accent: #55c188;
+    --accent-hover: #79cfa1;
+    --accent-soft: #0c2b1c;
+    --accent-ink: #0a0a0a;
+  }
+}
+
+/* The whole taskpane flips when an ancestor (or the body) gets .dark.
+ * Two CSS vars change; everything else cascades. */
+.dark {
+  --bg: #0a0a0a;
+  --fg: #ffffff;
+  --muted: #8a8a8a;
+  --line: #2a2a2a;
+  --line-2: #1a1a1a;
+  --soft: #161616;
+  --invert: #fff;
+  --invert-fg: #000;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg: #0a0a0a;
+    --fg: #ffffff;
+    --muted: #8a8a8a;
+    --line: #2a2a2a;
+    --line-2: #1a1a1a;
+    --soft: #161616;
+    --invert: #fff;
+    --invert-fg: #000;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-300);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- App shell ---------------------------------------------------------- */
+.ds-app {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* ---- Header ------------------------------------------------------------- */
+.ds-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg);
+  border-bottom: var(--bw-1) solid var(--line);
+}
+
+.ds-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-300);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ds-brand .mark {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-1);
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 12px;
+  flex: none;
+}
+
+.ds-brand svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ds-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-100);
+  font-weight: 700;
+  color: var(--fg);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+.ds-status[data-tone="busy"] .dot,
+.ds-status[data-tone="busy"] {
+  animation: ds-pulse 1.4s ease-in-out infinite;
+}
+
+.ds-status[data-tone="err"] {
+  color: var(--fg);
+}
+
+@keyframes ds-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.ds-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+/* ---- Status row (dedicated bar below the header) ------------------------ */
+/* Dot + status text on its own horizontal strip, same visual weight as the
+ * Excel meta row. Tone is mirrored onto the row (data-tone) by the taskpane
+ * JS so the bar can tint while busy. */
+.ds-status-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px var(--sp-4);
+  background: var(--soft);
+  border-bottom: var(--bw-1) solid var(--line);
+  transition: background var(--t-fast) var(--easing);
+}
+
+.ds-status-row .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+/* Inside the dedicated row the status text can breathe: full width,
+ * sentence case, one size up from the cramped header variant. */
+.ds-status-row .ds-status {
+  flex: 1 1 auto;
+  max-width: none;
+  font-size: var(--fs-200);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  animation: none;
+}
+
+.ds-status-row[data-tone="busy"] {
+  background: var(--accent-soft);
+}
+
+.ds-status-row[data-tone="busy"] .dot {
+  animation: ds-pulse 1.4s ease-in-out infinite;
+}
+
+.ds-status-row[data-tone="err"] .dot {
+  background: var(--fg);
+}
+
+/* ---- Compact meta row (Excel sheet/range/selection) ------------------ */
+.ds-meta-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--sp-4);
+  font-size: var(--fs-100);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--bg);
+  border-bottom: var(--bw-1) solid var(--line);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ds-meta-item {
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-meta-item[data-key="selection"]:empty::before,
+.ds-meta-item:not([data-empty="false"]):empty::before {
+  content: "—";
+  color: var(--muted);
+}
+
+.ds-meta-item[data-state="active"] {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.ds-meta-sep {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* ---- Context bar (legacy / Word) --------------------------------------- */
+.ds-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--soft);
+  border-bottom: var(--bw-1) solid var(--line);
+}
+
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-100);
+  font-weight: 600;
+  padding: 5px 10px;
+  border: var(--bw-1) solid var(--fg);
+  border-radius: var(--r-pill);
+  color: var(--fg);
+  background: var(--bg);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-chip svg {
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+
+.ds-chip[data-state="pinned"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.ds-chip[data-state="warn"] {
+  border-style: dashed;
+}
+
+.ds-chip strong {
+  font-weight: 700;
+}
+
+/* ---- Log (scrollable chat) --------------------------------------------- */
+.ds-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.ds-log::-webkit-scrollbar {
+  width: 5px;
+}
+.ds-log::-webkit-scrollbar-thumb {
+  background: var(--fg);
+  border-radius: 3px;
+}
+.ds-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ds-msg {
+  display: flex;
+  max-width: 100%;
+}
+
+.ds-msg[data-role="user"] {
+  justify-content: flex-end;
+}
+
+.ds-msg[data-role="bot"] {
+  justify-content: flex-start;
+}
+
+.ds-bubble {
+  max-width: 88%;
+  padding: 10px 13px;
+  border-radius: 14px;
+  font-size: var(--fs-300);
+  line-height: var(--lh-normal);
+  font-weight: 500;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.ds-msg[data-role="user"] .ds-bubble {
+  background: var(--fg);
+  color: var(--bg);
+  border-bottom-right-radius: 4px;
+  border-left: 2px solid var(--accent);
+}
+
+.ds-msg[data-role="bot"] .ds-bubble {
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--bw-2) solid var(--fg);
+  border-bottom-left-radius: 4px;
+}
+
+.ds-msg[data-tone="warn"] .ds-bubble {
+  border-style: dashed;
+}
+
+.ds-msg[data-tone="warn"] .ds-bubble::before {
+  content: "WARN · ";
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.ds-msg[data-tone="err"] .ds-bubble {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.ds-msg[data-tone="err"] .ds-bubble::before {
+  content: "ERROR · ";
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.ds-msg[data-tone="ok"] .ds-bubble {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.ds-msg[data-tone="ok"] .ds-bubble::before {
+  content: "DONE · ";
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.ds-meta {
+  display: block;
+  font-size: var(--fs-100);
+  color: var(--muted);
+  margin-top: 4px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ds-msg[data-role="user"] .ds-meta {
+  text-align: right;
+}
+
+/* ---- Proposal card ------------------------------------------------------ */
+.ds-card {
+  border: var(--bw-3) solid var(--fg);
+  border-radius: var(--r-2);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ds-card-head {
+  padding: 12px var(--sp-4);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--fg);
+  color: var(--bg);
+  border-bottom: var(--bw-1) solid var(--fg);
+}
+
+.ds-card-title {
+  font-size: var(--fs-300);
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-card-tag {
+  font-size: var(--fs-100);
+  font-weight: 700;
+  padding: 4px 10px;
+  background: var(--bg);
+  color: var(--fg);
+  border-radius: var(--r-1);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  flex: none;
+}
+
+.ds-card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ds-card-action {
+  padding: 11px var(--sp-4);
+  border-bottom: var(--bw-1) solid var(--line-2);
+  font-size: var(--fs-200);
+}
+
+.ds-card-action:last-child {
+  border-bottom: none;
+}
+
+.ds-card-action .label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: var(--fs-200);
+}
+
+.ds-card-action .label svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.ds-card-action .diff {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.ds-diff-old,
+.ds-diff-new {
+  padding: 5px 8px;
+  border-radius: var(--r-1);
+  word-break: break-word;
+}
+
+.ds-diff-old {
+  background: var(--soft);
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.ds-diff-new {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.ds-card-foot {
+  padding: 10px var(--sp-4);
+  border-top: var(--bw-2) solid var(--fg);
+  display: flex;
+  gap: 8px;
+  background: var(--soft);
+}
+
+.ds-card-foot .ds-btn-primary {
+  flex: 1 1 auto;
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+.ds-btn {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 9px 14px;
+  border-radius: var(--r-2);
+  border: var(--bw-2) solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background var(--t-fast) var(--easing),
+    color var(--t-fast) var(--easing), transform var(--t-fast) var(--easing);
+}
+
+.ds-btn:hover {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.ds-btn:focus-visible {
+  outline: var(--bw-2) solid var(--fg);
+  outline-offset: 2px;
+}
+
+.ds-btn:active {
+  transform: translateY(1px);
+}
+
+.ds-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.ds-btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-ink);
+}
+
+.ds-btn-primary:active {
+  background: var(--accent-hover);
+}
+
+.ds-btn[aria-disabled="true"],
+.ds-btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.ds-btn[data-busy="true"]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: ds-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-btn[data-busy="true"]::after {
+    animation: none;
+  }
+}
+
+@keyframes ds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ds-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-2);
+  background: var(--bg);
+  border: var(--bw-1) solid var(--fg);
+  color: var(--fg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+  transition: background var(--t-fast) var(--easing),
+    color var(--t-fast) var(--easing);
+}
+
+.ds-icon-btn:hover {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.ds-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ds-icon-btn[data-busy="true"]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: ds-spin 0.7s linear infinite;
+}
+
+/* ---- Footer (composer) -------------------------------------------------- */
+.ds-foot {
+  display: flex;
+  gap: 8px;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg);
+  border-top: var(--bw-1) solid var(--line);
+  align-items: flex-end;
+}
+
+.ds-input {
+  flex: 1 1 auto;
+  min-height: 38px;
+  max-height: 140px;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: var(--fs-300);
+  line-height: var(--lh-normal);
+  color: var(--fg);
+  background: var(--bg);
+  border: var(--bw-2) solid var(--fg);
+  border-radius: var(--r-2);
+  resize: none;
+  outline: none;
+}
+
+.ds-input::placeholder {
+  color: var(--muted);
+}
+
+.ds-input:focus {
+  background: var(--soft);
+  border-color: var(--accent);
+}
+
+.ds-send {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-2);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: var(--bw-2) solid var(--accent);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+  transition: transform var(--t-fast) var(--easing),
+    opacity var(--t-fast) var(--easing);
+}
+
+.ds-send:hover:not([aria-disabled="true"]) {
+  transform: translateY(-1px);
+}
+
+.ds-send[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.ds-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ds-send[data-busy="true"]::after {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: ds-spin 0.7s linear infinite;
+}
+
+.ds-send[data-busy="true"] svg {
+  display: none;
+}
+
+/* ---- Toggle row (markRed etc.) ---------------------------------------- */
+.ds-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--sp-4) var(--sp-2);
+  font-size: var(--fs-200);
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-toggle-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--fg);
+  cursor: pointer;
+}
+
+.ds-toggle-row[data-show="false"] {
+  display: none;
+}
+
+/* ---- Toast (fixed bottom-center) --------------------------------------- */
+.ds-toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--sp-3) + 88px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 50;
+  pointer-events: none;
+  width: calc(100% - var(--sp-5));
+  max-width: 320px;
+}
+
+.ds-toast {
+  pointer-events: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-2);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: var(--fs-200);
+  font-weight: 600;
+  border: var(--bw-2) solid var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: ds-toast-in var(--t-fast) var(--easing);
+  word-break: break-word;
+}
+
+.ds-toast[data-tone="err"] {
+  background: var(--bg);
+  color: var(--fg);
+  border-style: dashed;
+}
+
+.ds-toast[data-tone="warn"] {
+  background: var(--soft);
+  color: var(--fg);
+  border-color: var(--fg);
+  border-style: dashed;
+}
+
+.ds-toast .ds-toast-dismiss {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: var(--fs-400);
+  line-height: 1;
+  font-weight: 700;
+}
+
+.ds-toast .ds-toast-dismiss:hover {
+  opacity: 0.7;
+}
+
+.ds-toast .ds-toast-dismiss:focus-visible {
+  outline: var(--bw-1) solid currentColor;
+  border-radius: 3px;
+}
+
+@keyframes ds-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- Visually hidden (icon-only button labels) ------------------------- */
+.ds-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

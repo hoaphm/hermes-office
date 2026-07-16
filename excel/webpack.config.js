@@ -43,7 +43,12 @@ module.exports = async (env, options) => {
         {
           test: /\.html$/,
           exclude: /node_modules/,
-          use: "html-loader",
+          // See word/webpack.config.js — we don't want html-loader to try
+          // resolving assets/* from source (it lives only in the dist).
+          use: {
+            loader: "html-loader",
+            options: { sources: false },
+          },
         },
         {
           test: /\.(png|jpg|jpeg|gif|ico)$/,
@@ -69,6 +74,10 @@ module.exports = async (env, options) => {
           {
             from: "assets/*",
             to: "assets/[name][ext][query]",
+          },
+          {
+            from: "../shared/design-system.css",
+            to: "assets/design-system.css",
           },
           {
             from: "manifest*.xml",

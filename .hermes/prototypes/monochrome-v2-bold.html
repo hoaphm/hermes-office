@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Monochrome V2 — Bold Geometric</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #000000;
+    --muted: #707070;
+    --line: #d4d4d4;
+    --line-2: #ebebeb;
+    --soft: #f6f6f6;
+    --invert: #000;
+    --invert-fg: #fff;
+  }
+  .dark {
+    --bg: #0a0a0a;
+    --fg: #ffffff;
+    --muted: #8a8a8a;
+    --line: #2a2a2a;
+    --line-2: #1a1a1a;
+    --soft: #161616;
+    --invert: #fff;
+    --invert-fg: #000;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #ececec; color: #111; font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { padding: 24px; min-height: 100vh; }
+  .page-head { max-width: 1200px; margin: 0 auto 20px; display: flex; justify-content: space-between; align-items: center; }
+  .page-head h1 { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+  .page-head .tag { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .page-tag { max-width: 1200px; margin: 0 auto 28px; font-size: 13px; color: var(--muted); border-top: 2px solid #111; border-bottom: 2px solid #111; padding: 14px 0; font-weight: 500; }
+  .page-tag b { color: var(--fg); font-weight: 700; }
+  .grid { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .col-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--fg); margin-bottom: 14px; }
+  .frame-wrap { display: flex; justify-content: center; }
+  .ctx-toggle { position: fixed; top: 16px; right: 16px; background: #111; color: #fff; border: none; border-radius: 999px; padding: 8px 14px; font: 11px 'Inter', sans-serif; font-weight: 600; cursor: pointer; z-index: 100; letter-spacing: 0.04em; }
+  .ctx-toggle:hover { background: #000; }
+
+  /* ===== Office-context frame (320x600) ===== */
+  .office-frame {
+    width: 320px; height: 600px;
+    background: var(--bg);
+    border: 2px solid var(--fg);
+    border-radius: 14px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .dark.office-frame { border-color: var(--fg); }
+
+  /* Header */
+  .h-head {
+    padding: 16px 16px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg);
+  }
+  .h-brand { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; letter-spacing: -0.01em; }
+  .h-brand .mark { width: 22px; height: 22px; background: var(--fg); color: var(--bg); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .h-brand svg { width: 14px; height: 14px; }
+  .h-status { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 700; color: var(--fg); text-transform: uppercase; letter-spacing: 0.1em; }
+  .h-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg); }
+  .h-actions { display: flex; gap: 6px; }
+  .h-icon-btn { width: 30px; height: 30px; border-radius: 8px; background: var(--bg); border: 1px solid var(--fg); color: var(--fg); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .h-icon-btn:hover { background: var(--fg); color: var(--bg); }
+  .h-icon-btn svg { width: 14px; height: 14px; }
+
+  /* Context bar */
+  .h-context { padding: 10px 16px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: var(--soft); }
+  .chip { font-size: 10.5px; font-weight: 600; padding: 5px 10px; border: 1px solid var(--fg); border-radius: 999px; color: var(--fg); background: var(--bg); display: inline-flex; align-items: center; gap: 5px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .chip svg { width: 11px; height: 11px; }
+
+  /* Log */
+  .log { flex: 1; overflow-y: auto; padding: 16px; }
+  .log::-webkit-scrollbar { width: 5px; }
+  .log::-webkit-scrollbar-thumb { background: var(--fg); border-radius: 3px; }
+  .msg { margin-bottom: 14px; display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .msg.assistant { justify-content: flex-start; }
+  .bubble { max-width: 88%; padding: 10px 13px; font-size: 13px; line-height: 1.5; border-radius: 14px; font-weight: 500; }
+  .msg.user .bubble { background: var(--fg); color: var(--bg); border-bottom-right-radius: 4px; }
+  .msg.assistant .bubble { background: var(--bg); color: var(--fg); border: 1.5px solid var(--fg); border-bottom-left-radius: 4px; }
+  .msg.assistant.warn .bubble { background: var(--bg); border: 1.5px solid var(--fg); }
+  .msg.assistant.warn .bubble::before { content: 'WARN · '; font-weight: 700; }
+  .msg.assistant.err .bubble { background: var(--fg); color: var(--bg); border: 1.5px solid var(--fg); }
+  .msg.assistant.err .bubble::before { content: 'ERROR · '; font-weight: 700; }
+  .msg .meta { font-size: 9.5px; color: var(--muted); margin-top: 4px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .msg.user .meta { text-align: right; }
+
+  /* Proposal card */
+  .proposal {
+    margin: 0 12px 12px;
+    border: 2px solid var(--fg);
+    border-radius: 14px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .prop-head { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid var(--fg); background: var(--fg); color: var(--bg); }
+  .prop-title { font-size: 13px; font-weight: 700; letter-spacing: -0.005em; }
+  .prop-tag { font-size: 10px; font-weight: 700; padding: 4px 10px; background: var(--bg); color: var(--fg); border-radius: 999px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .dark .prop-head { background: var(--fg); color: var(--bg); }
+  .dark .prop-tag { background: var(--bg); color: var(--fg); }
+  .prop-list { padding: 6px 0; }
+  .prop-action { padding: 11px 14px; border-bottom: 1px solid var(--line-2); font-size: 12px; }
+  .prop-action:last-child { border-bottom: none; }
+  .prop-action .label { display: flex; gap: 8px; align-items: center; font-weight: 700; }
+  .prop-action .label svg { width: 13px; height: 13px; }
+  .prop-action .diff { margin-top: 6px; display: grid; gap: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 500; }
+  .diff-old, .diff-new { padding: 5px 8px; border-radius: 6px; }
+  .diff-old { background: var(--soft); color: var(--muted); text-decoration: line-through; }
+  .diff-new { background: var(--fg); color: var(--bg); }
+  .prop-foot { padding: 10px 14px; border-top: 1.5px solid var(--fg); display: flex; gap: 8px; background: var(--soft); }
+  .btn { font: 700 11.5px 'Inter', sans-serif; padding: 9px 14px; border-radius: 8px; cursor: pointer; border: 1.5px solid transparent; text-transform: uppercase; letter-spacing: 0.06em; }
+  .btn-primary { background: var(--fg); color: var(--bg); flex: 1; }
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-ghost { background: var(--bg); color: var(--fg); border: 1.5px solid var(--fg); }
+  .btn-ghost:hover { background: var(--fg); color: var(--bg); }
+
+  /* Footer */
+  .foot {
+    padding: 12px 12px 14px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 10px; align-items: flex-end;
+    background: var(--bg);
+  }
+  .foot textarea {
+    flex: 1;
+    resize: none;
+    border: 1.5px solid var(--fg);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font: 500 13px 'Inter', sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    outline: none;
+    min-height: 44px; max-height: 90px;
+  }
+  .foot textarea::placeholder { color: var(--muted); }
+  .foot textarea:focus { background: var(--soft); }
+  .send-btn {
+    width: 44px; height: 44px;
+    border-radius: 14px;
+    background: var(--fg); color: var(--bg);
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .send-btn svg { width: 16px; height: 16px; }
+  .send-btn:hover { transform: translateY(-1px); }
+  .send-btn:disabled { opacity: 0.35; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg);
+    padding: 10px 18px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    display: flex; align-items: center; gap: 7px;
+    z-index: 50;
+  }
+  .toast svg { width: 13px; height: 13px; }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>Hermes Office — Taskpane Variants</h1>
+    <span class="tag">V2 · BOLD · 320×600</span>
+  </div>
+  <div class="page-tag">
+    <b>Bold geometric.</b> High weight contrast. 2px borders, 14px radius, inverted headers. Linear / Stripe Press tone — confident, declarative, every section earns its weight.
+  </div>
+
+  <button class="ctx-toggle" onclick="toggleCtx()">Office addin context</button>
+
+  <div class="grid">
+    <div>
+      <div class="col-title">Light mode (default)</div>
+      <div class="frame-wrap" id="frameA"></div>
+    </div>
+    <div>
+      <div class="col-title">Dark mode (B/W inverted)</div>
+      <div class="frame-wrap" id="frameB"></div>
+    </div>
+  </div>
+
+<script>
+function toggleCtx() {
+  const f = document.getElementById('frameA');
+  if (f.style.maxWidth === '320px') {
+    f.style.maxWidth = '';
+  } else {
+    f.style.maxWidth = '320px';
+    f.style.borderRadius = '14px';
+    f.style.overflow = 'hidden';
+  }
+}
+
+function renderTaskpane(mode) {
+  return `
+  <div class="office-frame ${mode}">
+    <div class="h-head">
+      <div class="h-brand">
+        <span class="mark">H</span>
+        Hermes
+      </div>
+      <div class="h-status"><span class="dot"></span>READY</div>
+      <div class="h-actions">
+        <button class="h-icon-btn" title="New chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="h-context">
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>SHEET1</span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>A1:D24</span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 12l7-7 7 7"/></svg>3 PINNED</span>
+    </div>
+    <div class="log">
+      <div class="msg user">
+        <div><div class="bubble">Tô màu revenue &gt; 100K vàng nhạt, &lt;50K đỏ nhạt.</div><div class="meta">10:24</div></div>
+      </div>
+      <div class="msg assistant">
+        <div><div class="bubble">Sẽ apply conditional formatting cho 24 ô, range A2:D25. Xem preview bên dưới.</div><div class="meta">10:24</div></div>
+      </div>
+      <div class="msg assistant warn">
+        <div><div class="bubble">Cảnh báo: 3 ô có merged cells, sẽ skip.</div><div class="meta">10:24</div></div>
+      </div>
+      <div class="msg assistant err">
+        <div><div class="bubble">Không thể ghi Sheet2 — đang protected.</div><div class="meta">10:25</div></div>
+      </div>
+    </div>
+    <div class="proposal">
+      <div class="prop-head">
+        <span class="prop-title">Conditional Formatting</span>
+        <span class="prop-tag">3 actions</span>
+      </div>
+      <div class="prop-list">
+        <div class="prop-action">
+          <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M14 3h7v7h-7zM3 14h7v7H3z"/></svg> Apply 3-color scale to A2:D25</div>
+          <div class="diff"><div class="diff-old">No formatting</div><div class="diff-new">Color scale: #fff → #ccc → #000</div></div>
+        </div>
+        <div class="prop-action">
+          <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg> Bold rows where revenue &gt; 100K</div>
+          <div class="diff"><div class="diff-old">font-weight: 400</div><div class="diff-new">font-weight: 700</div></div>
+        </div>
+        <div class="prop-action">
+          <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M3 12h18M3 18h18"/></svg> Freeze top row</div>
+          <div class="diff"><div class="diff-old">No freeze</div><div class="diff-new">Freeze pane at A2</div></div>
+        </div>
+      </div>
+      <div class="prop-foot">
+        <button class="btn btn-ghost">Discard</button>
+        <button class="btn btn-primary">Apply All</button>
+      </div>
+    </div>
+    <div class="foot">
+      <textarea placeholder="Ask Hermes anything…"></textarea>
+      <button class="send-btn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="toast">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5 9-11"/></svg>
+    PROPOSAL READY
+  </div>`;
+}
+
+document.getElementById('frameA').innerHTML = renderTaskpane('light');
+document.getElementById('frameB').innerHTML = renderTaskpane('dark');
+</script>
+</body>
+</html>

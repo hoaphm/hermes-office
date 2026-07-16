@@ -3,6 +3,15 @@ import { askHermes } from "../shared/hermes";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
 import { signature, resolveRange, chartType } from "../../../shared/parsers.js";
+// UI helpers (proposal card, toast, context bar) live in shared/proposal-card.js
+// so both add-ins get the same design system + a11y treatment.
+import {
+  appendMessage,
+  setStatus as setStatusUi,
+  setBusy as setBusyUi,
+  showToast,
+  renderProposalCard,
+} from "../../../shared/proposal-card.js";
 
 const MAX_ROWS = 500;
 // Very wide sheets can otherwise blow up the snapshot payload sent to Hermes.
@@ -38,17 +47,63 @@ let busy = false;
 let proposalSheetName = null;
 
 Office.onReady(() => {
-  document.getElementById("ask").onclick = ask;
-  document.getElementById("apply").onclick = apply;
-  document.getElementById("newchat").onclick = newChat;
-  document.getElementById("prompt").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
+  const askBtn = document.getElementById("ask");
+  const newChatBtn = document.getElementById("newchat");
+  const promptEl = document.getElementById("prompt");
+  const applyBtn = document.getElementById("apply");
+
+  askBtn.addEventListener("click", ask);
+  newChatBtn.addEventListener("click", newChat);
+  applyBtn.addEventListener("click", apply);
+  promptEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      ask();
+    }
   });
-  const _prompt = document.getElementById("prompt");
-  _prompt.addEventListener("input", () => {
-    _prompt.style.height = "auto";
-    _prompt.style.height = Math.min(_prompt.scrollHeight, 120) + "px";
+  promptEl.addEventListener("input", () => {
+    promptEl.style.height = "auto";
+    promptEl.style.height = Math.min(promptEl.scrollHeight, 120) + "px";
   });
+
+  // One-line compact meta row: Sheet · Range · Selection. Each item is
+  // hidden if empty so the separator doesn't dangle. Cheap to re-render
+  // on every state change; no DOM thrash because we update the same nodes.
+  const sheetEl = document.querySelector('.ds-meta-item[data-key="sheet"]');
+  const rangeEl = document.querySelector('.ds-meta-item[data-key="range"]');
+  const selEl = document.querySelector('.ds-meta-item[data-key="selection"]');
+  const metaSep = document.querySelectorAll(".ds-meta-sep");
+
+  function setMetaItem(el, value, { active = false } = {}) {
+    if (!el) return;
+    const trimmed = (value || "").trim();
+    el.textContent = trimmed || "—";
+    el.dataset.empty = trimmed ? "false" : "true";
+    if (active && trimmed) {
+      el.dataset.state = "active";
+    } else {
+      delete el.dataset.state;
+    }
+    // Hide the element when nothing meaningful to show, plus its trailing
+    // separator so the row stays balanced.
+    el.style.display = trimmed ? "" : "none";
+  }
+
+  function refreshMeta(snap) {
+    if (!snap) {
+      setMetaItem(sheetEl, "");
+      setMetaItem(rangeEl, "");
+      setMetaItem(selEl, "");
+    } else {
+      setMetaItem(sheetEl, snap.name);
+      setMetaItem(rangeEl, snap.address || "");
+      setMetaItem(selEl, snap.selection ? snap.selection.address : "", {
+        active: true,
+      });
+    }
+  }
+  refreshMeta(null);
+  window.__hermesRefreshContext = refreshMeta;
 });
 
 // ---- conversation ----------------------------------------------------------
@@ -63,6 +118,7 @@ async function ask() {
   try {
     const snap = await getSnapshot();
     proposalSheetName = snap.name;
+    if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(snap);
     const sig = signature(snap);
     let content = prompt;
     if (sig !== lastSig) {
@@ -79,10 +135,14 @@ async function ask() {
     addBubble("bot", prose);
     pendingActions = actions;
     renderActions(actions);
-    setStatus(actions.length ? `${actions.length} hành động được đề xuất — xem lại rồi Áp dụng.` : "Sẵn sàng.");
+    setStatus(
+      actions.length
+        ? `${actions.length} hành động được đề xuất — xem lại rồi Áp dụng.`
+        : "Sẵn sàng."
+    );
   } catch (e) {
-    addBubble("bot", "⚠ " + e.message);
-    setStatus("Lỗi.");
+    addBubble("bot", "⚠ " + e.message, "err");
+    setStatus("Lỗi.", "err");
   } finally {
     setBusy(false);
   }
@@ -95,6 +155,7 @@ function newChat() {
   clearPending();
   document.getElementById("log").innerHTML = "";
   setStatus("Cuộc trò chuyện mới. Mở sheet dữ liệu và đặt câu hỏi.");
+  if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
 }
 
 // ---- reading the sheet (only sent when changed) ----------------------------
@@ -111,19 +172,32 @@ async function getSnapshot() {
       sel.load(["address", "values"]);
       await context.sync();
       if (sel.address) selection = { address: sel.address, values: sel.values };
-    } catch (_) { /* no selection or multi-area — ignore */ }
+    } catch (_) {
+      /* no selection or multi-area — ignore */
+    }
 
     const used = sheet.getUsedRangeOrNullObject(true); // valuesOnly
     used.load(["address", "values"]);
     await context.sync();
     if (used.isNullObject) {
-      return { name: sheet.name, address: null, values: [], rowsTruncated: false, colsTruncated: false, bytesTruncated: false, selection };
+      return {
+        name: sheet.name,
+        address: null,
+        values: [],
+        rowsTruncated: false,
+        colsTruncated: false,
+        bytesTruncated: false,
+        selection,
+      };
     }
     let values = used.values;
     let rowsTruncated = false;
     let colsTruncated = false;
     let bytesTruncated = false;
-    if (values.length > MAX_ROWS) { values = values.slice(0, MAX_ROWS); rowsTruncated = true; }
+    if (values.length > MAX_ROWS) {
+      values = values.slice(0, MAX_ROWS);
+      rowsTruncated = true;
+    }
     if (values.length > 0 && values[0].length > MAX_COLS) {
       values = values.map((row) => row.slice(0, MAX_COLS));
       colsTruncated = true;
@@ -135,7 +209,15 @@ async function getSnapshot() {
       values = values.slice(0, Math.ceil(values.length / 2));
       bytesTruncated = true;
     }
-    return { name: sheet.name, address: used.address, values, rowsTruncated, colsTruncated, bytesTruncated, selection };
+    return {
+      name: sheet.name,
+      address: used.address,
+      values,
+      rowsTruncated,
+      colsTruncated,
+      bytesTruncated,
+      selection,
+    };
   });
 }
 
@@ -168,39 +250,56 @@ function splitReply(raw) {
   if (target) {
     try {
       const obj = JSON.parse(target);
-      actions = obj.actions || (obj.editPlan ? obj.editPlan.map((e) => ({ type: "setCell", ...e })) : []);
-    } catch (_) { /* leave actions empty */ }
+      actions =
+        obj.actions || (obj.editPlan ? obj.editPlan.map((e) => ({ type: "setCell", ...e })) : []);
+    } catch (_) {
+      /* leave actions empty */
+    }
     prose = raw.replace(fenced ? fenced[0] : target, "").trim();
   }
-  return { prose: prose || "(các thay đổi đề xuất bên dưới)", actions: Array.isArray(actions) ? actions : [] };
+  return {
+    prose: prose || "(các thay đổi đề xuất bên dưới)",
+    actions: Array.isArray(actions) ? actions : [],
+  };
 }
 
 // ---- preview + apply -------------------------------------------------------
 
 function describe(a) {
   switch (a.type) {
-    case "setCell": return `Set ${a.cell}:  "${a.old ?? ""}" → "${a.new}"`;
-    case "setCells": return `Fill ${a.range} (${(a.values || []).length} rows)`;
-    case "format": return `Format ${a.range}${a.numberFormat ? ` as ${a.numberFormat}` : ""}${a.bold ? " (bold)" : ""}`;
-    case "createTable": return `Create table "${a.name || "Table"}" over ${a.range}`;
-    case "createChart": return `Create ${a.chartType || "Column"} chart from ${a.dataRange}${a.title ? ` — "${a.title}"` : ""}`;
-    case "newSheet": return `New sheet "${a.name}"`;
-    case "renameSheet": return `Rename active tab → "${a.to || a.name}"`;
-    default: return JSON.stringify(a);
+    case "setCell":
+      return `Set ${a.cell}:  "${a.old ?? ""}" → "${a.new}"`;
+    case "setCells":
+      return `Fill ${a.range} (${(a.values || []).length} rows)`;
+    case "format":
+      return `Format ${a.range}${a.numberFormat ? ` as ${a.numberFormat}` : ""}${a.bold ? " (bold)" : ""}`;
+    case "createTable":
+      return `Create table "${a.name || "Table"}" over ${a.range}`;
+    case "createChart":
+      return `Create ${a.chartType || "Column"} chart from ${a.dataRange}${a.title ? ` — "${a.title}"` : ""}`;
+    case "newSheet":
+      return `New sheet "${a.name}"`;
+    case "renameSheet":
+      return `Rename active tab → "${a.to || a.name}"`;
+    default:
+      return JSON.stringify(a);
   }
 }
 
 function renderActions(actions) {
   const box = document.getElementById("preview");
-  box.innerHTML = "";
-  if (!actions.length) { document.getElementById("apply").style.display = "none"; return; }
-  actions.forEach((a) => {
-    const div = document.createElement("div");
-    div.className = "act";
-    div.textContent = "• " + describe(a);
-    box.appendChild(div);
+  const card = renderProposalCard(box, {
+    title: actions.length
+      ? `${actions.length} hành động đề xuất cho sheet "${proposalSheetName || ""}"`
+      : "",
+    actions: actions,
+    primaryLabel: "Áp dụng",
   });
-  document.getElementById("apply").style.display = "block";
+  // renderProposalCard inserts an in-card Apply button — but we still need
+  // the standalone #apply button visible too, because the rest of the layout
+  // (and the existing keybindings) assume a footer-level CTA. The card's
+  // button is decorative and the real action lives in #apply.
+  document.getElementById("apply").style.display = card ? "block" : "none";
 }
 
 async function apply() {
@@ -214,7 +313,9 @@ async function apply() {
       const wb = context.workbook;
       const activeSheet = wb.worksheets.getActiveWorksheet();
       activeSheet.load("name");
-      let sheet = proposalSheetName ? wb.worksheets.getItemOrNullObject(proposalSheetName) : activeSheet;
+      let sheet = proposalSheetName
+        ? wb.worksheets.getItemOrNullObject(proposalSheetName)
+        : activeSheet;
       sheet.load(["name", "isNullObject"]);
       await context.sync();
 
@@ -224,7 +325,7 @@ async function apply() {
       if (proposalSheetName && activeSheet.name !== proposalSheetName) {
         throw new Error(
           `Sheet đang mở là "${activeSheet.name}" nhưng đề xuất này được tạo cho "${proposalSheetName}". ` +
-          `Hãy quay lại sheet "${proposalSheetName}" rồi Apply.`
+            `Hãy quay lại sheet "${proposalSheetName}" rồi Apply.`
         );
       }
 
@@ -237,7 +338,10 @@ async function apply() {
       const formatDims = new Map();
       let sheetMayChange = false;
       pendingActions.forEach((a, i) => {
-        if (a.type === "newSheet" || a.type === "renameSheet") { sheetMayChange = true; return; }
+        if (a.type === "newSheet" || a.type === "renameSheet") {
+          sheetMayChange = true;
+          return;
+        }
         if (a.type !== "format" || !a.numberFormat) return;
         const isQualified = String(a.range || "").includes("!");
         if (!isQualified && sheetMayChange) return;
@@ -245,7 +349,9 @@ async function apply() {
           const r = resolveRange(wb, sheet, a.range);
           r.load(["rowCount", "columnCount"]);
           formatDims.set(i, r);
-        } catch (_) { /* handled per-action below */ }
+        } catch (_) {
+          /* handled per-action below */
+        }
       });
       if (formatDims.size > 0) await context.sync();
 
@@ -288,7 +394,9 @@ async function apply() {
                   rowCount = r.rowCount;
                   columnCount = r.columnCount;
                 }
-                const fmt = Array.from({ length: rowCount }, () => Array.from({ length: columnCount }, () => a.numberFormat));
+                const fmt = Array.from({ length: rowCount }, () =>
+                  Array.from({ length: columnCount }, () => a.numberFormat)
+                );
                 r.numberFormat = fmt;
               }
               break;
@@ -299,7 +407,11 @@ async function apply() {
               break;
             }
             case "createChart": {
-              const ch = sheet.charts.add(chartType(a.chartType), resolveRange(wb, sheet, a.dataRange), Excel.ChartSeriesBy.auto);
+              const ch = sheet.charts.add(
+                chartType(a.chartType),
+                resolveRange(wb, sheet, a.dataRange),
+                Excel.ChartSeriesBy.auto
+              );
               if (a.title) ch.title.text = a.title;
               break;
             }
@@ -320,18 +432,23 @@ async function apply() {
         }
       }
     });
-    const summary = skipped > 0
-      ? `Đã áp dụng ${applied}/${pendingActions.length} hành động (${skipped} bị bỏ qua).`
-      : `Đã áp dụng ${applied} hành động.`;
-    addBubble("bot", summary);
-    if (failures.length > 0) addBubble("bot", "⚠ " + failures.join("; "));
+    const summary =
+      skipped > 0
+        ? `Đã áp dụng ${applied}/${pendingActions.length} hành động (${skipped} bị bỏ qua).`
+        : `Đã áp dụng ${applied} hành động.`;
+    addBubble("bot", summary, "ok");
+    showToast(summary, { tone: skipped > 0 ? "warn" : "ok" });
+    if (failures.length > 0) addBubble("bot", "⚠ " + failures.join("; "), "err");
     clearPending();
     lastSig = null; // workbook changed — re-send fresh data on the next turn
     proposalSheetName = null;
     setStatus("Sẵn sàng.");
+    if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
   } catch (e) {
-    addBubble("bot", "⚠ " + e.message);
-    setStatus("Lỗi.");
+    const errText = "⚠ " + e.message;
+    addBubble("bot", errText, "err");
+    setStatus("Lỗi.", "err");
+    showToast(errText, { tone: "err", timeout: 6000 });
   } finally {
     setBusy(false);
   }
@@ -340,7 +457,9 @@ async function apply() {
 // ---- helpers ---------------------------------------------------------------
 
 function tableName(n) {
-  return String(n).replace(/[^A-Za-z0-9_]/g, "_").replace(/^[^A-Za-z_]/, "_");
+  return String(n)
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/^[^A-Za-z_]/, "_");
 }
 
 function clearPending() {
@@ -351,17 +470,21 @@ function clearPending() {
 
 function setBusy(b, msg) {
   busy = b;
-  document.getElementById("ask").disabled = b;
-  if (msg) setStatus(msg);
+  setBusyUi(document.getElementById("ask"), b);
+  if (msg) setStatus(msg, b ? "busy" : undefined);
 }
 
-function addBubble(who, text) {
-  const log = document.getElementById("log");
-  const div = document.createElement("div");
-  div.className = "msg " + who;
-  div.textContent = text;
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
+function addBubble(who, text, tone) {
+  appendMessage(document.getElementById("log"), who, text, { tone });
 }
 
-function setStatus(s) { document.getElementById("status").textContent = s; }
+function setStatus(s, tone) {
+  setStatusUi(document.getElementById("status"), s, { tone });
+  // Mirror the tone onto the row so the bar tints while busy — the dot sits
+  // outside #status, so setStatusUi's textContent write can't wipe it.
+  const row = document.getElementById("statusRow");
+  if (row) {
+    if (tone) row.dataset.tone = tone;
+    else delete row.dataset.tone;
+  }
+}

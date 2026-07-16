@@ -12,3 +12,7 @@ Caddyfile
 # misc
 *.log
 .DS_Store
+
+# Hermes agent scratch — keep design prototypes, ignore runtime cache
+.hermes/cache/
+.hermes/*.log

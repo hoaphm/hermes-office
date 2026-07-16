@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Monochrome V1 — Minimal</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #000000;
+    --muted: #6b6b6b;
+    --line: #e5e5e5;
+    --line-2: #f0f0f0;
+    --soft: #fafafa;
+    --ok: #1a1a1a;
+    --warn: #2c2c2c;
+    --err: #000000;
+    --pill: #111111;
+    --pill-fg: #ffffff;
+  }
+  .dark {
+    --bg: #000000;
+    --fg: #ffffff;
+    --muted: #9a9a9a;
+    --line: #262626;
+    --line-2: #171717;
+    --soft: #0a0a0a;
+    --ok: #f0f0f0;
+    --warn: #e0e0e0;
+    --err: #ffffff;
+    --pill: #f5f5f5;
+    --pill-fg: #000000;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #f3f3f3; color: #111; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { padding: 24px; min-height: 100vh; }
+  .page-head { max-width: 1200px; margin: 0 auto 20px; display: flex; justify-content: space-between; align-items: center; }
+  .page-head h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+  .page-head .tag { font-size: 12px; color: var(--muted); }
+  .page-tag { max-width: 1200px; margin: 0 auto 28px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 12px 0; }
+  .page-tag b { color: var(--fg); font-weight: 600; }
+  .grid { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .col-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px; }
+  .frame-wrap { display: flex; justify-content: center; }
+  .ctx-toggle { position: fixed; top: 16px; right: 16px; background: #fff; border: 1px solid #d4d4d4; border-radius: 999px; padding: 6px 12px; font: 11px 'Inter', sans-serif; cursor: pointer; z-index: 100; }
+  .ctx-toggle:hover { background: #111; color: #fff; }
+
+  /* ===== Office-context frame (320x600) ===== */
+  .office-frame {
+    width: 320px; height: 600px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .office-frame.light { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .office-frame.dark { background: var(--bg); border-color: var(--line); }
+
+  /* Header */
+  .h-head {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .h-brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: -0.005em; }
+  .h-brand svg { width: 14px; height: 14px; }
+  .h-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .h-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg); }
+  .h-actions { display: flex; gap: 4px; }
+  .h-icon-btn { width: 26px; height: 26px; border-radius: 4px; background: transparent; border: none; color: var(--fg); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .h-icon-btn:hover { background: var(--line-2); }
+
+  /* Context bar */
+  .h-context { padding: 8px 16px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .chip { font-size: 10.5px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 3px; color: var(--fg); background: transparent; display: inline-flex; align-items: center; gap: 4px; }
+  .chip svg { width: 10px; height: 10px; }
+
+  /* Log */
+  .log { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  .log::-webkit-scrollbar { width: 4px; }
+  .log::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+  .msg { margin-bottom: 12px; display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .msg.assistant { justify-content: flex-start; }
+  .bubble { max-width: 86%; padding: 8px 11px; font-size: 12.5px; line-height: 1.5; border-radius: 4px; }
+  .msg.user .bubble { background: var(--fg); color: var(--bg); }
+  .msg.assistant .bubble { background: var(--soft); color: var(--fg); border: 1px solid var(--line); }
+  .msg.assistant.warn .bubble { background: var(--soft); border-color: var(--fg); }
+  .msg.assistant.err .bubble { background: var(--fg); color: var(--bg); border: 1px solid var(--fg); }
+  .msg .meta { font-size: 9.5px; color: var(--muted); margin-top: 3px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .msg.user .meta { text-align: right; }
+
+  /* Proposal card */
+  .proposal {
+    margin: 0 12px 12px;
+    border: 1px solid var(--fg);
+    border-radius: 4px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .prop-head { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); }
+  .prop-title { font-size: 12px; font-weight: 600; }
+  .prop-tag { font-size: 9.5px; padding: 2px 6px; background: var(--fg); color: var(--bg); border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .prop-list { padding: 4px 0; }
+  .prop-action { padding: 8px 12px; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+  .prop-action:last-child { border-bottom: none; }
+  .prop-action .label { display: flex; gap: 6px; align-items: center; font-weight: 500; }
+  .prop-action .label svg { width: 11px; height: 11px; }
+  .prop-action .diff { margin-top: 5px; display: grid; gap: 3px; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+  .diff-old, .diff-new { padding: 3px 6px; border-radius: 3px; }
+  .diff-old { background: var(--soft); color: var(--muted); text-decoration: line-through; }
+  .diff-new { background: var(--fg); color: var(--bg); }
+  .dark .diff-new { background: var(--fg); }
+  .prop-foot { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; gap: 6px; }
+  .btn { font: 500 11.5px 'Inter', sans-serif; padding: 7px 12px; border-radius: 3px; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--fg); color: var(--bg); flex: 1; }
+  .btn-ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+  .btn:hover { opacity: 0.85; }
+
+  /* Footer */
+  .foot {
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 8px; align-items: flex-end;
+    background: var(--bg);
+  }
+  .foot textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font: 12.5px 'Inter', sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    outline: none;
+    min-height: 36px; max-height: 80px;
+  }
+  .foot textarea:focus { border-color: var(--fg); }
+  .foot textarea::placeholder { color: var(--muted); }
+  .send-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--fg); color: var(--bg);
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .send-btn svg { width: 14px; height: 14px; }
+  .send-btn:disabled { opacity: 0.4; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg);
+    padding: 8px 14px; border-radius: 4px;
+    font-size: 12px; font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 50;
+  }
+  .toast svg { width: 13px; height: 13px; }
+  .dark .toast { box-shadow: 0 4px 12px rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>Hermes Office — Taskpane Variants</h1>
+    <span class="tag">V1 · MINIMAL · 320×600</span>
+  </div>
+  <div class="page-tag">
+    <b>Minimal.</b> Pure black & white. Generous whitespace. Hairline borders. Compact type. Apple/Notion tone — content first, chrome stays silent.
+  </div>
+
+  <button class="ctx-toggle" onclick="toggleCtx()">Office addin context</button>
+
+  <div class="grid">
+    <div>
+      <div class="col-title">Light mode (default)</div>
+      <div class="frame-wrap" id="frameA">
+        <!-- injected via JS for easier swap -->
+      </div>
+    </div>
+    <div>
+      <div class="col-title">Dark mode (B/W inverted)</div>
+      <div class="frame-wrap" id="frameB">
+      </div>
+    </div>
+  </div>
+
+<script>
+function toggleCtx() {
+  const f = document.getElementById('frameA');
+  if (f.style.maxWidth === '320px') {
+    f.style.maxWidth = '';
+    f.style.boxShadow = '';
+  } else {
+    f.style.maxWidth = '320px';
+    f.style.boxShadow = '0 8px 32px rgba(0,0,0,0.15)';
+    f.style.borderRadius = '6px';
+    f.style.overflow = 'hidden';
+  }
+}
+
+function renderTaskpane(mode) {
+  return `
+  <div class="office-frame ${mode}">
+    <div class="h-head">
+      <div class="h-brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+        Hermes
+      </div>
+      <div class="h-status"><span class="dot"></span> ready</div>
+      <div class="h-actions">
+        <button class="h-icon-btn" title="New chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="h-context">
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Sheet1</span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>A1:D24</span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 12l7-7 7 7"/></svg>3 pinned</span>
+    </div>
+    <div class="log">
+      <div class="msg user">
+        <div><div class="bubble">Tô màu revenue &gt; 100K vàng nhạt, &lt;50K đỏ nhạt.</div><div class="meta">10:24</div></div>
+      </div>
+      <div class="msg assistant">
+        <div><div class="bubble">Sẽ apply conditional formatting cho 24 ô, range A2:D25. Xem preview bên dưới.</div><div class="meta">10:24</div></div>
+      </div>
+      <div class="msg assistant warn">
+        <div><div class="bubble">Cảnh báo: 3 ô có merged cells, sẽ skip.</div><div class="meta">10:24</div></div>
+      </div>
+      <div class="msg assistant err">
+        <div><div class="bubble">Không thể ghi Sheet2 — đang protected.</div><div class="meta">10:25</div></div>
+      </div>
+    </div>
+    <div class="proposal">
+      <div class="prop-head">
+        <span class="prop-title">Conditional Formatting</span>
+        <span class="prop-tag">3 actions</span>
+      </div>
+      <div class="prop-list">
+        <div class="prop-action">
+          <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M14 3h7v7h-7zM3 14h7v7H3z"/></svg> Apply 3-color scale to A2:D25</div>
+          <div class="diff"><div class="diff-old">No formatting</div><div class="diff-new">Color scale: #fff → #ccc → #000</div></div>
+        </div>
+        <div class="prop-action">
+          <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg> Bold rows where revenue &gt; 100K</div>
+          <div class="diff"><div class="diff-old">font-weight: 400</div><div class="diff-new">font-weight: 700</div></div>
+        </div>
+        <div class="prop-action">
+          <div class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg> Freeze top row</div>
+          <div class="diff"><div class="diff-old">No freeze</div><div class="diff-new">Freeze pane at A2</div></div>
+        </div>
+      </div>
+      <div class="prop-foot">
+        <button class="btn btn-ghost">Discard</button>
+        <button class="btn btn-primary">Apply all</button>
+      </div>
+    </div>
+    <div class="foot">
+      <textarea placeholder="Ask Hermes anything…"></textarea>
+      <button class="send-btn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="toast">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5 9-11"/></svg>
+    Proposal ready
+  </div>`;
+}
+
+document.getElementById('frameA').innerHTML = renderTaskpane('light');
+document.getElementById('frameB').innerHTML = renderTaskpane('dark');
+</script>
+</body>
+</html>

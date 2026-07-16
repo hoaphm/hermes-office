@@ -35,7 +35,16 @@ module.exports = async (env, options) => {
         {
           test: /\.html$/,
           exclude: /node_modules/,
-          use: "html-loader",
+          // The taskpane HTML links assets/design-system.css, but the
+          // shared CSS is only available in the dist output (copied by
+          // CopyWebpackPlugin from ../shared/design-system.css) — there's
+          // no source at src/taskpane/assets/. Disable html-loader's
+          // resource resolution so the <link> is left alone and shipped
+          // to the dist as a plain href.
+          use: {
+            loader: "html-loader",
+            options: { sources: false },
+          },
         },
         {
           test: /\.(png|jpg|jpeg|gif|ico)$/,
@@ -51,7 +60,16 @@ module.exports = async (env, options) => {
         chunks: ["polyfill", "taskpane"],
       }),
       new CopyWebpackPlugin({
-        patterns: [{ from: "assets/*", to: "assets/[name][ext][query]" }],
+        patterns: [
+          { from: "assets/*", to: "assets/[name][ext][query]" },
+          // Shared design system — used by both add-ins. Copied verbatim so
+          // the dist HTML can <link rel="stylesheet" href="assets/design-system.css">
+          // without any CSS loader pipeline.
+          {
+            from: "../shared/design-system.css",
+            to: "assets/design-system.css",
+          },
+        ],
       }),
       new CopyWebpackPlugin({
         patterns: [
