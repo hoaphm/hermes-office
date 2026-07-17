@@ -6,8 +6,8 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Hermes for Excel"/>
   <Description DefaultValue="Chat with your Hermes agent inside Excel, plus =HERMES.* custom functions."/>
-  <IconUrl DefaultValue="https://localhost:8643/assets/icon-v1783923757-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:8643/assets/icon-v1783923757-64.png"/>
+  <IconUrl DefaultValue="https://localhost:8643/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:8643/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://github.com/tonbistudio/hermes-office"/>
   <AppDomains>
     <AppDomain>https://localhost:8643</AppDomain>

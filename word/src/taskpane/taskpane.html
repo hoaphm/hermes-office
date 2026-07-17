@@ -45,9 +45,7 @@
            stays brand-only. Tone is mirrored onto the row by taskpane.js. -->
       <div id="statusRow" class="ds-status-row">
         <span class="dot" aria-hidden="true"></span>
-        <span id="status" class="ds-status" role="status" aria-live="polite"
-          >Sẵn sàng</span
-        >
+        <span id="status" class="ds-status" role="status" aria-live="polite">Sẵn sàng</span>
       </div>
 
       <!-- Context chips (Pinned / Snapshot / warnings) render here instead
@@ -56,7 +54,12 @@
 
       <div id="log" class="ds-log" role="log" aria-live="polite"></div>
 
-      <div id="preview" role="region" aria-label="Proposed changes"></div>
+      <div
+        id="preview"
+        class="ds-preview"
+        role="region"
+        aria-label="Proposed changes"
+      ></div>
 
       <label id="markRedWrap" class="ds-toggle-row" data-show="false">
         <input type="checkbox" id="markRed" checked />

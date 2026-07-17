@@ -8,7 +8,7 @@
 // header, so we never send the API key from here.
 
 const ENDPOINT = "https://localhost:8643/v1/chat/completions";
-const TIMEOUT_MS = 60000;
+const DEFAULT_TIMEOUT_MS = 60000;
 
 function isTimeoutOrNetworkError(err) {
   return (
@@ -17,7 +17,7 @@ function isTimeoutOrNetworkError(err) {
   );
 }
 
-async function callHermes(messages, idempotencyKey) {
+async function callHermes(messages, idempotencyKey, timeoutMs) {
   // Note: only Authorization, Content-Type, and Idempotency-Key are allowed by
   // the API server's CORS policy. Don't add other custom headers or the browser
   // preflight will fail ("Failed to fetch"). Conversation continuity comes from
@@ -29,25 +29,31 @@ async function callHermes(messages, idempotencyKey) {
     method: "POST",
     headers,
     body: JSON.stringify({ model: "hermes-agent", messages }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(`Hermes ${res.status}: ${await res.text()}`);
   }
   const data = await res.json();
-  return data.choices[0].message.content;
+  const choice = data && data.choices && data.choices[0];
+  if (!choice || !choice.message)
+    throw new Error(`Hermes bad payload: ${JSON.stringify(data).slice(0, 200)}`);
+  return choice.message.content;
 }
 
-export async function askHermes(messages, { idempotencyKey } = {}) {
+export async function askHermes(
+  messages,
+  { idempotencyKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {}
+) {
   try {
-    return await callHermes(messages, idempotencyKey);
+    return await callHermes(messages, idempotencyKey, timeoutMs);
   } catch (err) {
     // Retry exactly once, and only for a transient network failure or a
     // request timeout. An HTTP error response (res.ok === false) is a real
     // server-side answer, not a blip, so it is NOT retried.
     if (!isTimeoutOrNetworkError(err)) throw err;
     try {
-      return await callHermes(messages, idempotencyKey);
+      return await callHermes(messages, idempotencyKey, timeoutMs);
     } catch (err2) {
       if (isTimeoutOrNetworkError(err2)) {
         throw new Error(
