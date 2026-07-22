@@ -7,7 +7,7 @@
 // Caddy (https://localhost:8643) terminates TLS and injects the Authorization
 // header, so we never send the API key from here.
 
-const ENDPOINT = "https://localhost:8643/v1/chat/completions";
+const ENDPOINT = "/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 60000;
 
 function isTimeoutOrNetworkError(err) {

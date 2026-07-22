@@ -6,11 +6,11 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Hermes for Excel"/>
   <Description DefaultValue="Chat with your Hermes agent inside Excel, plus =HERMES.* custom functions."/>
-  <IconUrl DefaultValue="https://localhost:8643/assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:8643/assets/icon-64.png"/>
+  <IconUrl DefaultValue="https://localhost:8643/excel/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:8643/excel/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://github.com/tonbistudio/hermes-office"/>
   <AppDomains>
-    <AppDomain>https://localhost:8643</AppDomain>
+    <AppDomain>https://localhost:8644</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
@@ -21,7 +21,7 @@
     </Sets>
   </Requirements>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://localhost:8643/taskpane.html"/>
+    <SourceLocation DefaultValue="https://localhost:8643/excel/taskpane.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
@@ -84,15 +84,15 @@
     </Hosts>
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:8643/assets/icon-v1783923757-16.png"/>
-        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:8643/assets/icon-v1783923757-32.png"/>
-        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:8643/assets/icon-v1783923757-80.png"/>
+        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:8643/excel/assets/icon-v1783923757-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:8643/excel/assets/icon-v1783923757-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:8643/excel/assets/icon-v1783923757-80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Functions.Script.Url" DefaultValue="https://localhost:8643/functions.js"/>
-        <bt:Url id="Functions.Metadata.Url" DefaultValue="https://localhost:8643/functions.json"/>
+        <bt:Url id="Functions.Script.Url" DefaultValue="https://localhost:8643/excel/functions.js"/>
+        <bt:Url id="Functions.Metadata.Url" DefaultValue="https://localhost:8643/excel/functions.json"/>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/tonbistudio/hermes-office"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:8643/taskpane.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:8643/excel/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Functions.Namespace" DefaultValue="HERMES"/>

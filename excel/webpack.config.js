@@ -6,7 +6,7 @@ const CustomFunctionsMetadataPlugin = require("custom-functions-metadata-plugin"
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 
 const urlDev = "https://localhost:3000/";
-const urlProd = "https://localhost:8643/";
+const urlProd = "https://localhost:8643/excel/";
 
 /* global require, module, process */
 
