@@ -302,6 +302,20 @@ function renderActions(actions) {
   document.getElementById("apply").style.display = card ? "block" : "none";
 }
 
+// Range.values evaluates any string starting with =, +, -, or @ as a formula,
+// exactly like Range.formulas. Model-proposed cell values can be influenced by
+// sheet content that's round-tripped into the prompt, so force such strings to
+// literal text (the same leading-apostrophe convention the Excel UI uses) —
+// otherwise a poisoned cell could get an AI-proposed value silently applied as
+// a live formula (e.g. WEBSERVICE-based exfiltration).
+function literalCellValue(v) {
+  return typeof v === "string" && /^[=+\-@]/.test(v) ? "'" + v : v;
+}
+
+function literalizeGrid(values) {
+  return (values || []).map((row) => row.map(literalCellValue));
+}
+
 async function apply() {
   if (!pendingActions.length || busy) return;
   setBusy(true, "Đang áp dụng…");
@@ -370,12 +384,12 @@ async function apply() {
             }
             case "setCell": {
               const r = resolveRange(wb, sheet, a.cell);
-              r.values = [[a.new]];
+              r.values = [[literalCellValue(a.new)]];
               r.format.fill.color = "#C6EFCE";
               break;
             }
             case "setCells": {
-              resolveRange(wb, sheet, a.range).values = a.values;
+              resolveRange(wb, sheet, a.range).values = literalizeGrid(a.values);
               break;
             }
             case "format": {

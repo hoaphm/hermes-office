@@ -10,7 +10,7 @@
   <HighResolutionIconUrl DefaultValue="https://localhost:8643/excel/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://github.com/tonbistudio/hermes-office"/>
   <AppDomains>
-    <AppDomain>https://localhost:8644</AppDomain>
+    <AppDomain>https://localhost:8643</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
