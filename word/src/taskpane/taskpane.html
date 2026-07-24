@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <title>Hermes — Word</title>
-    <link rel="stylesheet" href="assets/design-system.css" />
+    <link rel="stylesheet" href="assets/design-system.css?v=widthfix4" />
   </head>
 
   <body class="theme-word">
@@ -52,33 +52,35 @@
            of inside the header — see refreshContextBar() in taskpane.js. -->
       <div id="contextRow"></div>
 
-      <div id="log" class="ds-log" role="log" aria-live="polite"></div>
+      <main class="ds-content">
+        <div id="log" class="ds-log" role="log" aria-live="polite"></div>
 
-      <div
-        id="preview"
-        class="ds-preview"
-        role="region"
-        aria-label="Proposed changes"
-      ></div>
+        <div
+          id="preview"
+          class="ds-preview"
+          role="region"
+          aria-label="Proposed changes"
+        ></div>
 
-      <label id="markRedWrap" class="ds-toggle-row" data-show="false">
-        <input type="checkbox" id="markRed" checked />
-        <span>Đánh dấu đỏ phần đã sửa</span>
-      </label>
+        <label id="markRedWrap" class="ds-toggle-row" data-show="false">
+          <input type="checkbox" id="markRed" checked />
+          <span>Đánh dấu đỏ phần đã sửa</span>
+        </label>
 
-      <button
-        id="apply"
-        class="ds-btn ds-btn-primary"
-        type="button"
-        style="
-          display: none;
-          margin: 0 14px 10px;
-          width: calc(100% - 28px);
-          height: 42px;
-        "
-      >
-        Áp dụng thay đổi
-      </button>
+        <button
+          id="apply"
+          class="ds-btn ds-btn-primary"
+          type="button"
+          style="
+            display: none;
+            margin: 0 14px 10px;
+            width: calc(100% - 28px);
+            height: 42px;
+          "
+        >
+          Áp dụng thay đổi
+        </button>
+      </main>
 
       <div id="composer" class="ds-foot">
         <textarea

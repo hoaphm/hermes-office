@@ -178,11 +178,20 @@ body {
 
 /* ---- App shell ---------------------------------------------------------- */
 .ds-app {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  min-width: 0;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
   background: var(--bg);
+}
+
+/* Grid items otherwise keep their min-content width. A pinned document
+ * excerpt is a single nowrap chip, so it could widen then clip the pane. */
+.ds-app > * {
+  min-width: 0;
 }
 
 /* ---- Header ------------------------------------------------------------- */
@@ -401,11 +410,22 @@ body {
   font-weight: 700;
 }
 
-/* ---- Log (scrollable chat) --------------------------------------------- */
-.ds-log {
-  flex: 1 1 auto;
+/* ---- Scrollable taskpane content --------------------------------------- */
+.ds-content {
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Proposal, toggle, and Apply stay in this same scroll area. A long diff
+ * cannot push the action below the fixed composer. */
+.ds-content .ds-log {
+  min-height: 0;
+  overflow: visible;
+}
+
+/* ---- Log (chat history) ------------------------------------------------- */
+.ds-log {
   padding: var(--sp-4);
   display: flex;
   flex-direction: column;
@@ -590,6 +610,8 @@ body {
 
 .ds-diff-old,
 .ds-diff-new {
+  max-height: 180px;
+  overflow-y: auto;
   padding: 5px 8px;
   border-radius: var(--r-1);
   word-break: break-word;

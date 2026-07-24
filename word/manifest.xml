@@ -20,7 +20,7 @@
     <Host Name="Document"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://localhost:8643/word/taskpane.html"/>
+    <SourceLocation DefaultValue="https://localhost:8643/word/taskpane.html?v=scrollfix3"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
@@ -71,7 +71,7 @@
       </bt:Images>
       <bt:Urls>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/tonbistudio/hermes-office"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:8643/word/taskpane.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:8643/word/taskpane.html?v=scrollfix3"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GetStarted.Title" DefaultValue="Hermes for Word"/>

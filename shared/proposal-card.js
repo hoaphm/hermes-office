@@ -45,7 +45,8 @@ export function appendMessage(log, role, text, { tone } = {}) {
   wrap.appendChild(bubble);
 
   log.appendChild(wrap);
-  log.scrollTop = log.scrollHeight;
+  const scroller = log.closest(".ds-content") || log;
+  scroller.scrollTop = scroller.scrollHeight;
   return wrap;
 }
 
