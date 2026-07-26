@@ -1,8 +1,8 @@
-/* global Office, Excel, document */
+/* global Office, Excel, document, window */
 import { askHermes } from "../shared/hermes";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
-import { signature, resolveRange, chartType } from "../../../shared/parsers.js";
+import { signature, resolveRange, chartType, extractJsonObject } from "../../../shared/parsers.js";
 // UI helpers (proposal card, toast, context bar) live in shared/proposal-card.js
 // so both add-ins get the same design system + a11y treatment.
 import {
@@ -19,6 +19,10 @@ const MAX_COLS = 100;
 // Belt-and-suspenders byte cap on top of the row/col caps, in case a sheet
 // is dense (long strings) rather than just tall/wide.
 const MAX_SNAPSHOT_BYTES = 200000;
+// Cap on replayed conversation turns (excluding the system message at index
+// 0). Each turn can carry a full sheet snapshot, so an unbounded history grew
+// the request payload without limit across a long session.
+const MAX_HISTORY_MESSAGES = 20;
 
 const SYSTEM = `You are Hermes, embedded in an Excel task pane. Chat naturally and concisely.
 
@@ -72,7 +76,6 @@ Office.onReady(() => {
   const sheetEl = document.querySelector('.ds-meta-item[data-key="sheet"]');
   const rangeEl = document.querySelector('.ds-meta-item[data-key="range"]');
   const selEl = document.querySelector('.ds-meta-item[data-key="selection"]');
-  const metaSep = document.querySelectorAll(".ds-meta-sep");
 
   function setMetaItem(el, value, { active = false } = {}) {
     if (!el) return;
@@ -130,6 +133,13 @@ async function ask() {
     setBusy(true, "Hermes đang suy nghĩ…");
     const raw = await askHermes(history);
     history.push({ role: "assistant", content: raw });
+    // Trim oldest turns, always preserving the system message at index 0.
+    if (history.length > MAX_HISTORY_MESSAGES + 1) {
+      history.splice(1, history.length - (MAX_HISTORY_MESSAGES + 1));
+      // The dropped turns may have carried the only copy of the sheet
+      // snapshot, so force the next turn to re-send fresh data.
+      lastSig = null;
+    }
 
     const { prose, actions } = splitReply(raw);
     addBubble("bot", prose);
@@ -172,7 +182,7 @@ async function getSnapshot() {
       sel.load(["address", "values"]);
       await context.sync();
       if (sel.address) selection = { address: sel.address, values: sel.values };
-    } catch (_) {
+    } catch {
       /* no selection or multi-area — ignore */
     }
 
@@ -246,13 +256,16 @@ function splitReply(raw) {
   let actions = [];
   let prose = raw;
   const fenced = raw.match(/```json\s*([\s\S]*?)```/i);
-  const target = fenced ? fenced[1] : (raw.match(/\{[\s\S]*"actions"[\s\S]*\}/) || [])[0];
+  // Unfenced fallback: brace-balanced extraction rather than a greedy
+  // /\{[\s\S]*"actions"[\s\S]*\}/, which swallowed everything from the first
+  // `{` in the prose to the last `}` in the reply and then failed to parse.
+  const target = fenced ? fenced[1] : extractJsonObject(raw, "actions");
   if (target) {
     try {
       const obj = JSON.parse(target);
       actions =
         obj.actions || (obj.editPlan ? obj.editPlan.map((e) => ({ type: "setCell", ...e })) : []);
-    } catch (_) {
+    } catch {
       /* leave actions empty */
     }
     prose = raw.replace(fenced ? fenced[0] : target, "").trim();
@@ -293,13 +306,11 @@ function renderActions(actions) {
       ? `${actions.length} hành động đề xuất cho sheet "${proposalSheetName || ""}"`
       : "",
     actions: actions,
-    primaryLabel: "Áp dụng",
   });
-  // renderProposalCard inserts an in-card Apply button — but we still need
-  // the standalone #apply button visible too, because the rest of the layout
-  // (and the existing keybindings) assume a footer-level CTA. The card's
-  // button is decorative and the real action lives in #apply.
+  // renderProposalCard renders no CTA of its own — the single Apply button is
+  // the footer-level #apply, which we show only when there is a card.
   document.getElementById("apply").style.display = card ? "block" : "none";
+  document.getElementById("highlightWrap").style.display = card ? "flex" : "none";
 }
 
 // Range.values evaluates any string starting with =, +, -, or @ as a formula,
@@ -318,6 +329,11 @@ function literalizeGrid(values) {
 
 async function apply() {
   if (!pendingActions.length || busy) return;
+  // Tinting applied cells used to be unconditional, permanently overwriting
+  // whatever fill the user had there with no way to opt out. Now it mirrors
+  // Word's "mark edits red" toggle: on by default, but the user's choice.
+  const highlightEl = document.getElementById("highlight");
+  const highlight = highlightEl && highlightEl.checked;
   setBusy(true, "Đang áp dụng…");
   let applied = 0;
   let skipped = 0;
@@ -363,7 +379,7 @@ async function apply() {
           const r = resolveRange(wb, sheet, a.range);
           r.load(["rowCount", "columnCount"]);
           formatDims.set(i, r);
-        } catch (_) {
+        } catch {
           /* handled per-action below */
         }
       });
@@ -385,7 +401,7 @@ async function apply() {
             case "setCell": {
               const r = resolveRange(wb, sheet, a.cell);
               r.values = [[literalCellValue(a.new)]];
-              r.format.fill.color = "#C6EFCE";
+              if (highlight) r.format.fill.color = "#C6EFCE";
               break;
             }
             case "setCells": {
@@ -480,6 +496,7 @@ function clearPending() {
   pendingActions = [];
   document.getElementById("preview").innerHTML = "";
   document.getElementById("apply").style.display = "none";
+  document.getElementById("highlightWrap").style.display = "none";
 }
 
 function setBusy(b, msg) {

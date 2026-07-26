@@ -1,4 +1,3 @@
-/* global CustomFunctions */
 import { askHermes } from "../shared/hermes";
 
 function ikey(name, args) {

@@ -1,4 +1,4 @@
-/* global Office, Word */
+/* global Office, Word, document, setTimeout */
 
 import { askHermes } from "../shared/hermes.js";
 // Pure helpers deduped with the Excel taskpane via the repo-root shared/
@@ -30,6 +30,11 @@ const MAX_FULLDOC_CHARS = 30000;
 // reliably target B instead of revisiting A.
 const PIN_BOOKMARK_NAME = "HermesPinnedSelection";
 
+// Keep the replayed conversation bounded. Every turn also re-embeds a fresh
+// system prompt holding up to MAX_FULLDOC_CHARS of the document, so an
+// unbounded history made each request grow without limit.
+const MAX_HISTORY_MESSAGES = 20;
+
 Office.onReady().then(() => {
   const log = document.getElementById("log");
   const input = document.getElementById("prompt");
@@ -55,6 +60,12 @@ Office.onReady().then(() => {
   // button did nothing in the field).
   let messages = [];
   let lastProposal = null;
+  // Re-entrancy guard. setBusyUi only sets aria-disabled (deliberately, so the
+  // button keeps focus) — which does NOT block clicks. Without this flag,
+  // hammering Send/Enter ran several sendMessage() calls concurrently, letting
+  // their messages.push() interleave and clobbering lastProposal; the same on
+  // Apply let a proposal be written into the document twice.
+  let busy = false;
   // Snapshot of the text range captured at send time, used as a fallback
   // target if the user's selection is lost by the time they click Apply.
   let capturedSelectionText = "";
@@ -96,8 +107,10 @@ Office.onReady().then(() => {
   }
   refreshContextBar();
 
-  function addMsg(role, text) {
-    return appendMessage(log, role, text);
+  // opts is forwarded (not dropped) so { tone: "err" } / { tone: "ok" } from
+  // the call sites below actually reaches the bubble's styling.
+  function addMsg(role, text, opts) {
+    return appendMessage(log, role, text, opts);
   }
 
   function setStatus(text, tone) {
@@ -109,17 +122,6 @@ Office.onReady().then(() => {
       if (tone) statusRowEl.dataset.tone = tone;
       else delete statusRowEl.dataset.tone;
     }
-  }
-
-  // Escapes text before it is interpolated into an innerHTML template, so
-  // model output or document text can never inject markup into the preview.
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
   }
 
   // ---- reading the selection (text / table / full doc) ---------------------
@@ -227,7 +229,7 @@ Office.onReady().then(() => {
           await context.sync();
         }
       });
-    } catch (_) {
+    } catch {
       // Selection pinning is best-effort (the bookmark APIs need WordApi 1.4);
       // the pinnedSelectionText / fresh-read fallbacks still work.
     }
@@ -250,7 +252,7 @@ Office.onReady().then(() => {
           return t.length > 0 ? t : null;
         });
       });
-    } catch (_) {
+    } catch {
       return null;
     }
   }
@@ -295,7 +297,7 @@ Office.onReady().then(() => {
           await context.sync();
         }
       });
-    } catch (_) {
+    } catch {
       // Best-effort — Apply still has the bookmark/search fallbacks.
     }
   }
@@ -309,7 +311,7 @@ Office.onReady().then(() => {
         context.document.deleteBookmark(PIN_BOOKMARK_NAME);
         await context.sync();
       });
-    } catch (_) {
+    } catch {
       // best-effort cleanup
     }
   }
@@ -433,8 +435,11 @@ Office.onReady().then(() => {
   async function detectSelectedTable() {
     const fromSelection = await Word.run(async (context) => {
       const sel = context.document.getSelection();
-      sel.tables.load("items");
+      sel.load("tables/items");
       await context.sync();
+      // The rule wants "tables/items/length" loaded explicitly, but .length is
+      // a plain array property of the items collection we just loaded.
+      // eslint-disable-next-line office-addins/load-object-before-read
       if (sel.tables.items.length === 0) return null;
       return readTableCells(context, sel.tables.items);
     }).catch(() => null);
@@ -442,13 +447,44 @@ Office.onReady().then(() => {
 
     const fromParent = await Word.run(async (context) => {
       const sel = context.document.getSelection();
-      sel.parentTable.load("isNullObject");
+      sel.load("parentTable/isNullObject");
       await context.sync();
       if (sel.parentTable.isNullObject) return null;
+      // We deliberately pass the unloaded Table proxy on; readTableCells()
+      // issues its own load()/sync() for the properties it needs.
+      // eslint-disable-next-line office-addins/load-object-before-read
       return readTableCells(context, [sel.parentTable]);
     }).catch(() => null);
     if (fromParent) return fromParent;
 
+    return null;
+  }
+
+  // Content fingerprint of a table snapshot ({rowCount, columnCount, values}).
+  // Word's JS API gives no stable table identifier we can hold across
+  // Word.run contexts, so the table's own pre-edit contents are what let
+  // Apply re-find the exact table a proposal was generated against.
+  function tableSignature(t) {
+    return `${t.rowCount}x${t.columnCount}:${JSON.stringify(t.values)}`;
+  }
+
+  // Locate the table whose current contents still match `sig`. Checks the
+  // tables in the live selection first (the common case, and cheap), then
+  // falls back to scanning the body — the user may have clicked out of the
+  // table between Ask and Apply. Returns null when no table matches, which
+  // the caller turns into a "select the table again" error rather than
+  // writing into whatever table happens to be selected now.
+  async function findProposalTable(context, sig) {
+    const sel = context.document.getSelection();
+    sel.load("tables/items");
+    const body = context.document.body;
+    body.load("tables/items");
+    await context.sync();
+
+    for (const table of sel.tables.items.concat(body.tables.items)) {
+      const [snap] = await readTableCells(context, [table]);
+      if (snap && tableSignature(snap) === sig) return table;
+    }
     return null;
   }
 
@@ -529,10 +565,21 @@ ${data.text}`;
 
   // ---- send / apply ---------------------------------------------------------
 
+  // A reply that is nothing but one fenced block is the model wrapping the
+  // document in ``` — unwrap it, otherwise the fence markers get written into
+  // the document verbatim. Only unwraps when the ENTIRE reply is one fence, so
+  // a document that legitimately contains code blocks is left alone.
+  function stripWrappingFence(text) {
+    const t = String(text).trim();
+    const m = t.match(/^```[a-zA-Z]*[ \t]*\r?\n([\s\S]*?)\r?\n?```$/);
+    return m ? m[1].trim() : t;
+  }
+
   async function sendMessage() {
     const userText = input.value.trim();
-    if (!userText) return;
+    if (!userText || busy) return;
 
+    busy = true;
     addMsg("user", userText);
     input.value = "";
     setBusyUi(askBtn, true);
@@ -597,7 +644,15 @@ ${data.text}`;
       if (selectionData.type === "table") {
         const tableChanges = parseWordTableChanges(reply);
         if (tableChanges.length > 0) {
-          lastProposal = { type: "table", changes: tableChanges };
+          // Fingerprint the table this proposal was built from. Apply used to
+          // just grab sel.tables.items[0] at click time, so selecting a
+          // different table before clicking Apply wrote the changes into the
+          // wrong table.
+          lastProposal = {
+            type: "table",
+            changes: tableChanges,
+            tableSig: tableSignature(selectionData.tables[0]),
+          };
           // Render via the shared card so Word and Excel get the same visual
           // treatment for proposals. tableChanges here are plain {cell, value}
           // records, so we normalise them into the standard replace action
@@ -610,19 +665,20 @@ ${data.text}`;
               old: c.value,
               new: c.value,
             })),
-            primaryLabel: "Áp dụng",
           });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
         }
       } else if (selectionData.type === "text") {
-        lastProposal = { type: "text", text: reply };
+        // The system prompt asks for bare text, but unwrap a stray fence
+        // anyway rather than pasting ``` markers into the document.
+        const passage = stripWrappingFence(reply);
+        lastProposal = { type: "text", text: passage };
         renderProposalCard(preview, {
           title: "Đề xuất chỉnh sửa đoạn đã chọn",
           actions: [
-            { type: "replace", find: capturedSelectionText, replace: reply },
+            { type: "replace", find: capturedSelectionText, replace: passage },
           ],
-          primaryLabel: "Áp dụng",
         });
         applyBtn.style.display = "block";
         markRedWrap.style.display = "flex";
@@ -638,19 +694,28 @@ ${data.text}`;
               find: e.find,
               replace: e.replace,
             })),
-            primaryLabel: "Áp dụng",
           });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
-        } else if (reply.trim().length > selectionData.text.length * 0.5) {
+        } else if (
+          // Compare against what Hermes was ACTUALLY sent, not the full
+          // document: for a doc larger than MAX_FULLDOC_CHARS the model only
+          // ever sees the truncated head, so measuring its reply against the
+          // untruncated length made this test unsatisfiable and silently
+          // discarded every whole-document rewrite/translation of a big file.
+          reply.trim().length >
+          Math.min(selectionData.text.length, MAX_FULLDOC_CHARS) * 0.5
+        ) {
           // Looks like a full rewrite / translation → replace whole doc.
-          lastProposal = { type: "fulldoc-full", text: reply };
+          lastProposal = {
+            type: "fulldoc-full",
+            text: stripWrappingFence(reply),
+          };
           renderProposalCard(preview, {
             title: "Thay thế toàn bộ văn bản",
             actions: [
               { type: "insert", location: "toàn văn bản", text: reply },
             ],
-            primaryLabel: "Thay thế",
           });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
@@ -665,12 +730,19 @@ ${data.text}`;
 
       messages.push({ role: "user", content: userText });
       messages.push({ role: "assistant", content: reply });
+      // Drop the oldest turns once the window is full. The system prompt is
+      // rebuilt from the live document on every send, so it is not part of
+      // `messages` and can't be trimmed away here.
+      if (messages.length > MAX_HISTORY_MESSAGES) {
+        messages = messages.slice(-MAX_HISTORY_MESSAGES);
+      }
       setStatus("Ready.");
     } catch (err) {
       const errMsg = err.message || String(err);
       addMsg("bot", errMsg, { tone: "err" });
       setStatus("Error.", "err");
     } finally {
+      busy = false;
       setBusyUi(askBtn, false);
       input.focus();
     }
@@ -690,25 +762,27 @@ ${data.text}`;
   const MAX_SEARCH_LEN = 255;
 
   async function applyEdit() {
-    if (!lastProposal) return;
+    if (!lastProposal || busy) return;
 
     // Đọc trạng thái toggle "đánh dấu đỏ" một lần — nếu bật, mọi đoạn văn bản
     // được chèn/sửa trong lượt Apply này sẽ được tô màu đỏ để dễ nhận biết.
     const markRedEl = document.getElementById("markRed");
     const markRed = markRedEl && markRedEl.checked;
 
+    busy = true;
+    setBusyUi(applyBtn, true);
     setStatus("Applying…", "busy");
     let editStats = null;
     try {
       if (lastProposal.type === "table") {
         await Word.run(async (context) => {
-          const sel = context.document.getSelection();
-          sel.tables.load("items");
-          await context.sync();
-          const table = sel.tables.items[0];
+          // Re-find the table this proposal was generated against by its
+          // pre-edit contents, instead of writing into whichever table is
+          // selected at click time.
+          const table = await findProposalTable(context, lastProposal.tableSig);
           if (!table)
             throw new Error(
-              "Không tìm thấy bảng đã chọn. Hãy chọn lại bảng rồi Apply.",
+              "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
             );
           table.load(["rowCount", "columnCount"]);
           await context.sync();
@@ -747,13 +821,21 @@ ${data.text}`;
               });
               ranges.load("items");
               await context.sync();
+              // A search that matched nothing changed the document in no way,
+              // so it must count as skipped — incrementing `applied`
+              // unconditionally reported "Applied 5 action(s)" for a document
+              // that was never touched.
+              if (ranges.items.length === 0) {
+                skipped++;
+                continue;
+              }
               ranges.items.forEach((r) => {
                 const inserted = r.insertText(String(edit.replace), "Replace");
                 if (markRed) inserted.font.color = "#FF0000";
               });
               await context.sync();
               applied++;
-            } catch (_) {
+            } catch {
               skipped++;
             }
           }
@@ -856,10 +938,16 @@ ${data.text}`;
       setStatus(errText, "err");
       addMsg("bot", errText, { tone: "err" });
       showToast(errText, { tone: "err", timeout: 6000 });
+    } finally {
+      busy = false;
+      setBusyUi(applyBtn, false);
     }
   }
 
   function newChat() {
+    // Refuse while a send/apply is in flight, otherwise the in-flight turn
+    // pushes its user+assistant pair into the history we just cleared.
+    if (busy) return;
     messages = [];
     lastProposal = null;
     capturedSelectionText = "";

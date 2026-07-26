@@ -2,8 +2,12 @@ const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 
-const urlDev = "https://localhost:3000/";
-const urlProd = "https://localhost:8643/";
+// Caddy serves this add-in's dist under /word/ (see the repo-root Caddyfile),
+// so the production base must carry that path segment.
+const urlProd = "https://localhost:8643/word/";
+// String.replace() with a string pattern only substitutes the FIRST match —
+// the manifest has a dozen dev URLs, so this must be a global regex.
+const urlDevPattern = /https:\/\/localhost:3000\//g;
 
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
@@ -77,9 +81,10 @@ module.exports = async (env, options) => {
             from: "manifest*.xml",
             to: "[name][ext][query]",
             transform(content) {
-              return content
-                .toString()
-                .replace(urlDev, urlProd);
+              // In dev the manifest is already pointing at the webpack
+              // dev-server on :3000, so leave it untouched.
+              if (dev) return content;
+              return content.toString().replace(urlDevPattern, urlProd);
             },
           },
         ],

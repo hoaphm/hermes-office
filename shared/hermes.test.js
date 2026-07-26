@@ -24,6 +24,30 @@ test("askHermes retries once on timeout, then surfaces a clear bilingual error",
   assert.equal(callCount, 2, "should retry exactly once on timeout");
 });
 
+test("askHermes still works where AbortSignal.timeout is unavailable", async () => {
+  // Older Office WebViews lack AbortSignal.timeout; calling it there threw a
+  // TypeError that the retry path misread as a network blip, so the user saw
+  // a bogus "did not respond in time" instead of the real answer.
+  const original = AbortSignal.timeout;
+  delete AbortSignal.timeout;
+  try {
+    let seenSignal;
+    global.fetch = async (_url, init) => {
+      seenSignal = init.signal;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+      };
+    };
+    assert.equal(await askHermes([{ role: "user", content: "hi" }]), "ok");
+    assert.ok(seenSignal, "should still pass an abort signal via AbortController");
+    assert.equal(seenSignal.aborted, false);
+  } finally {
+    AbortSignal.timeout = original;
+  }
+});
+
 test("askHermes recovers from a single transient network failure", async () => {
   let callCount = 0;
   global.fetch = async () => {

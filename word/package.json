@@ -1,7 +1,13 @@
 {
   "name": "hermes-word",
   "version": "0.1.0",
+  "description": "Hermes agent inside Word — task-pane chat + AI document editing.",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tonbistudio/hermes-office.git"
+  },
   "scripts": {
     "build": "webpack --mode production",
     "lint": "office-addin-lint check",

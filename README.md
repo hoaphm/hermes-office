@@ -123,6 +123,23 @@ There is no npm workspace between the two add-ins (nothing is published to a reg
 - Bind everything to `localhost`; keep `API_SERVER_CORS_ORIGINS` narrow.
 - No add-in ever holds the key — Caddy injects it.
 
+### What the Caddy hop does and does not protect
+
+Keeping the key out of the add-in bundle solves a *distribution* problem: the secret never lands in git, in `dist/`, or in a manifest you might share. It is **not** an access control.
+
+Caddy injects the `Authorization` header for **every** request that reaches `:8643/v1/*`, without authenticating the caller. So on a machine running this setup, any local process — another app, a shell one-liner, an npm `postinstall` script — can `curl https://localhost:8643/v1/chat/completions` and drive the full agent, tools and all, without ever seeing the key. The browser same-origin policy stops *other web pages* from reading responses (the CORS snippet only allows `https://localhost:8643`), but it stops nothing running outside a browser.
+
+Practical consequences:
+- Run `caddy` only while you are actually using the add-ins; stop it when you're done.
+- Treat a machine with this running as one where any local code has agent-level privileges. Don't leave it up on a shared or untrusted host.
+- The threat this design defends against is *leaking the key*, not *someone local using the agent*.
+
+### Prompt injection
+
+Both panes send document/workbook content to the agent, so text inside a file you open is untrusted input that can influence what the model proposes. Two mitigations are in place, and both matter:
+- **Nothing is written without your approval** — every change is rendered as a proposal card and applied only when you click Apply. Read the card; it is the security boundary.
+- **Excel never applies a model-proposed value as a live formula.** Strings starting with `=`, `+`, `-`, or `@` are forced to literal text (`literalCellValue` in `excel/src/taskpane/taskpane.js`), so an injected `=WEBSERVICE(...)` cannot turn into an exfiltration channel on Apply.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

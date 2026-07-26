@@ -5,8 +5,10 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const CustomFunctionsMetadataPlugin = require("custom-functions-metadata-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 
-const urlDev = "https://localhost:3000/";
 const urlProd = "https://localhost:8643/excel/";
+// String.replace() with a string pattern only substitutes the FIRST match —
+// the manifest has a dozen dev URLs, so this must be a global regex.
+const urlDevPattern = /https:\/\/localhost:3000\//g;
 
 /* global require, module, process */
 
@@ -86,7 +88,7 @@ module.exports = async (env, options) => {
               if (dev) {
                 return content;
               } else {
-                return content.toString().replace(urlDev, urlProd);
+                return content.toString().replace(urlDevPattern, urlProd);
               }
             },
           },

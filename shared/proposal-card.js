@@ -83,8 +83,12 @@ export function mountContextBar(host, chips) {
 // ---- Proposal card (the core component) -----------------------------------
 
 /**
- * Describe a single action. Returns a small object so the caller (or
- * renderProposalCard) can decide how to render it.
+ * Describe a single action.
+ *
+ * Returns PLAIN, UNESCAPED text. renderProposalCard escapes every field it
+ * interpolates, so escaping here too produced visible double-encoding —
+ * a title of `R&D "2024"` rendered as `R&amp;D &quot;2024&quot;`. Escaping
+ * belongs at the single point where a string enters innerHTML, not here.
  *
  * @param {object} a action (Word edits[] or Excel actions[])
  * @returns {{summary: string, kind: "diff"|"info", diff?: {old, new}, label?: string}}
@@ -94,39 +98,39 @@ export function describeAction(a) {
   switch (a.type) {
     case "setCell":
       return {
-        summary: `Set ${escCell(a.cell)}`,
+        summary: `Set ${String(a.cell ?? "")}`,
         kind: "diff",
         diff: { old: String(a.old ?? ""), new: String(a.new ?? "") },
       };
     case "setCells":
       return {
-        summary: `Fill ${esc(a.range)} · ${(a.values || []).length} rows`,
+        summary: `Fill ${a.range} · ${(a.values || []).length} rows`,
         kind: "info",
       };
     case "format":
       return {
         summary:
-          `Format ${esc(a.range)}` +
-          (a.numberFormat ? ` as ${esc(a.numberFormat)}` : "") +
+          `Format ${a.range}` +
+          (a.numberFormat ? ` as ${a.numberFormat}` : "") +
           (a.bold ? " (bold)" : ""),
         kind: "info",
       };
     case "createTable":
       return {
-        summary: `Create table "${esc(a.name || "Table")}" over ${esc(a.range)}`,
+        summary: `Create table "${a.name || "Table"}" over ${a.range}`,
         kind: "info",
       };
     case "createChart":
       return {
         summary:
-          `Create ${esc(a.chartType || "Column")} chart from ${esc(a.dataRange)}` +
-          (a.title ? ` — "${esc(a.title)}"` : ""),
+          `Create ${a.chartType || "Column"} chart from ${a.dataRange}` +
+          (a.title ? ` — "${a.title}"` : ""),
         kind: "info",
       };
     case "newSheet":
-      return { summary: `New sheet "${esc(a.name)}"`, kind: "info" };
+      return { summary: `New sheet "${a.name}"`, kind: "info" };
     case "renameSheet":
-      return { summary: `Rename active tab → "${esc(a.to || a.name)}"`, kind: "info" };
+      return { summary: `Rename active tab → "${a.to || a.name}"`, kind: "info" };
     case "replace": {
       // Word edit shape: { find, replace, all_occurrences }.
       const find = a.find ?? a.find_text ?? "";
@@ -139,19 +143,14 @@ export function describeAction(a) {
     }
     case "insert":
       return {
-        summary: `Insert at ${esc(a.location || a.at || "cursor")}`,
+        summary: `Insert at ${a.location || a.at || "cursor"}`,
         kind: "info",
       };
     case "delete":
-      return { summary: `Delete ${esc(a.range || a.text || "")}`, kind: "info" };
+      return { summary: `Delete ${a.range || a.text || ""}`, kind: "info" };
     default:
       return { summary: JSON.stringify(a), kind: "info" };
   }
-}
-
-function escCell(c) {
-  if (typeof c !== "string") return String(c ?? "");
-  return esc(c);
 }
 
 /**
@@ -159,12 +158,13 @@ function escCell(c) {
  * are removed and a new card is appended.
  *
  * The card is header (inverted) + action list (each row is label + optional
- * diff old/new chips) + footer with the primary CTA. The host is responsible
- * for keeping its OWN apply button if it needs a footer-level CTA — we don't
- * add one here by default.
+ * diff old/new chips). It deliberately renders NO call-to-action button: both
+ * task panes own a footer-level #apply button, and a second in-card button
+ * would be a decorative duplicate of it. Callers should show/hide their own
+ * #apply based on whether this returns a card.
  *
  * @param {HTMLElement} host any container (e.g. #preview)
- * @param {{ title?: string, actions: object[], primaryLabel?: string }} proposal
+ * @param {{ title?: string, actions: object[] }} proposal
  * @returns {HTMLElement|null} the rendered card element, or null if no actions
  */
 export function renderProposalCard(host, proposal) {

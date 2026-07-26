@@ -5,6 +5,7 @@ import {
   columnLettersToIndex,
   parseEdits,
   parseTableChanges,
+  extractJsonObject,
   signature,
   hash,
   resolveRange,
@@ -59,6 +60,39 @@ test("parseTableChanges: bare object with no fence", () => {
 
 test("parseTableChanges: no cells present returns []", () => {
   assert.deepEqual(parseTableChanges("nothing to change here"), []);
+});
+
+test("parseTableChanges: a non-array `cells` is rejected, not returned", () => {
+  // Used to `return obj.cells || []`, handing a bare object to callers that
+  // immediately did .length / .map on it.
+  assert.deepEqual(parseTableChanges('```json\n{"cells":{"cell":"A1"}}\n```'), []);
+});
+
+test("parseTableChanges: drops malformed entries", () => {
+  const reply = '```json\n{"cells":[{"cell":"A1","value":"x"},{"value":"no cell"},null]}\n```';
+  assert.deepEqual(parseTableChanges(reply), [{ cell: "A1", value: "x" }]);
+});
+
+test("parseEdits: unfenced object containing a nested array still parses", () => {
+  // The old lazy /\[[\s\S]*?\]/ regex stopped at the first inner `]`, yielding
+  // truncated JSON that failed to parse and silently dropped every edit.
+  const reply = 'Fixes: {"edits":[{"find":"a","replace":"b","spans":[1,2]}]} done.';
+  assert.deepEqual(parseEdits(reply), [{ find: "a", replace: "b" }]);
+});
+
+test("extractJsonObject: picks the object holding the key, ignoring earlier braces", () => {
+  const text = 'noise {"other":1} then {"actions":[{"type":"setCell"}]} tail';
+  assert.equal(extractJsonObject(text, "actions"), '{"actions":[{"type":"setCell"}]}');
+});
+
+test("extractJsonObject: braces inside string values do not break balancing", () => {
+  const text = '{"actions":[{"type":"setCell","new":"} not a brace {"}]}';
+  assert.equal(extractJsonObject(text, "actions"), text);
+  assert.equal(JSON.parse(extractJsonObject(text, "actions")).actions.length, 1);
+});
+
+test("extractJsonObject: returns null when the key is absent", () => {
+  assert.equal(extractJsonObject('{"cells":[]}', "actions"), null);
 });
 
 test("signature: stable for an identical snapshot", () => {

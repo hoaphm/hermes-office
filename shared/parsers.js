@@ -26,14 +26,54 @@ export function columnLettersToIndex(letters) {
   return n - 1;
 }
 
+// Index of the `}` that closes the `{` at `start`, or -1. String-aware, so
+// braces inside JSON string values (or escaped quotes) don't throw off the
+// depth count.
+function matchBrace(text, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+
+// Pull the brace-balanced JSON object that contains `"<key>"` out of arbitrary
+// prose. Scanning braces (rather than regex-matching) is what makes nested
+// arrays/objects safe: a lazy `\[[\s\S]*?\]` stops at the first inner `]` and
+// yields truncated, unparseable JSON.
+export function extractJsonObject(text, key) {
+  const keyIdx = text.indexOf(`"${key}"`);
+  if (keyIdx === -1) return null;
+  // Walk outward from the nearest preceding `{` until we find one whose
+  // matching `}` sits after the key — i.e. the object that actually holds it.
+  let start = text.lastIndexOf("{", keyIdx);
+  while (start !== -1) {
+    const end = matchBrace(text, start);
+    if (end > keyIdx) return text.slice(start, end + 1);
+    start = start > 0 ? text.lastIndexOf("{", start - 1) : -1;
+  }
+  return null;
+}
+
 // Accept either a fenced ```json block OR a bare { "edits": [...] } object
 // that may be embedded in prose. Try fenced first, then a loose match.
 export function parseEdits(reply) {
   const candidates = [];
   const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced) candidates.push(fenced[1]);
-  const bare = reply.match(/\{[^{}]*"edits"\s*:\s*\[[\s\S]*?\]\s*\}/);
-  if (bare) candidates.push(bare[0]);
+  const bare = extractJsonObject(reply, "edits");
+  if (bare) candidates.push(bare);
 
   for (const c of candidates) {
     try {
@@ -44,7 +84,7 @@ export function parseEdits(reply) {
           .filter((e) => e && typeof e.find === "string" && e.find.length > 0)
           .map((e) => ({ find: e.find, replace: e.replace === undefined ? "" : String(e.replace) }));
       }
-    } catch (_) {
+    } catch {
       /* try next candidate */
     }
   }
@@ -52,15 +92,27 @@ export function parseEdits(reply) {
 }
 
 export function parseTableChanges(reply) {
-  const fenced = reply.match(/```json\s*([\s\S]*?)```/i);
-  const jsonStr = fenced ? fenced[1] : reply.match(/\{"cells"\s*:\s*\[[\s\S]*?\]\s*\}/);
-  if (!jsonStr) return [];
-  try {
-    const obj = JSON.parse(fenced ? fenced[1] : jsonStr[0]);
-    return obj.cells || [];
-  } catch (_) {
-    return [];
+  const candidates = [];
+  const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidates.push(fenced[1]);
+  const bare = extractJsonObject(reply, "cells");
+  if (bare) candidates.push(bare);
+
+  for (const c of candidates) {
+    try {
+      const obj = JSON.parse(c.trim());
+      // Guard the shape: `return obj.cells || []` happily returned a non-array
+      // (e.g. an object) and blew up downstream on .length / .map.
+      if (obj && Array.isArray(obj.cells)) {
+        return obj.cells.filter(
+          (x) => x && typeof x.cell === "string" && x.value !== undefined
+        );
+      }
+    } catch {
+      /* try next candidate */
+    }
   }
+  return [];
 }
 
 // djb2-style string hash, used to build the Excel taskpane's change-detection
