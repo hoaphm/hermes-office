@@ -18,9 +18,8 @@ import {
   renderProposalCard,
 } from "../../../shared/proposal-card.js";
 
-// Full-document mode sends the whole open document to Hermes as context;
-// cap it so a large file doesn't blow up the request payload / token budget.
-const MAX_FULLDOC_CHARS = 30000;
+// Word's Range.search() rejects find strings longer than 255 characters.
+const MAX_SEARCH_LEN = 255;
 
 // Bookmark used to anchor the user's selection in the document at the moment
 // they make it. A bookmark is a live document object, so re-reading its text
@@ -75,6 +74,9 @@ Office.onReady().then(() => {
   // it fresh inside sendMessage() would always see "" and fall back to
   // treating the request as whole-document.
   let pinnedSelectionText = "";
+  // True only while current Word selection is a non-empty passage. Prevents
+  // an old bookmark from turning a new collapsed selection into old-text mode.
+  let selectionIsPinned = false;
   // The in-flight pinCurrentSelection() promise. Ask awaits it before reading
   // the bookmark, so selecting a passage and clicking Ask immediately can't
   // read the pin mid-flight and resolve the PREVIOUS passage.
@@ -128,14 +130,16 @@ Office.onReady().then(() => {
 
   // Word.run with retry — the first read right after a document switch can
   // fail with a transient "document busy / call cancelled" error, so retry
-  // before giving up.
+  // before giving up. Only transient Office error codes are retried; a real
+  // failure (permission denied, invalid argument, etc.) surfaces immediately.
+  const TRANSIENT_CODES = new Set(["ActivitySuspended", "ItemNotFound"]);
   function wordRunWithRetry(fn, retries = 3) {
     return new Promise((resolve, reject) => {
       const attempt = (n) => {
         Word.run(fn)
           .then(resolve)
           .catch((err) => {
-            if (n <= 1) reject(err);
+            if (n <= 1 || !TRANSIENT_CODES.has(err && err.code)) reject(err);
             else setTimeout(() => attempt(n - 1), 350);
           });
       };
@@ -222,6 +226,7 @@ Office.onReady().then(() => {
         // pins are cleared by newChat() / replaced by the next real selection.
         if (text.length > 0) {
           pinnedSelectionText = text;
+          selectionIsPinned = true;
           // deleteBookmark is a no-op when the bookmark doesn't exist;
           // delete-then-insert in one batch replaces any previous pin.
           context.document.deleteBookmark(PIN_BOOKMARK_NAME);
@@ -320,6 +325,22 @@ Office.onReady().then(() => {
   // bookmark so getSelectionData() later resolves the EXACT passage the user
   // just selected. Runs outside a Word.run context, so it opens its own.
   async function onSelectionChangedHandler() {
+    // Word fires an empty selection event both when the user clicks the
+    // taskpane and when they place the cursor in the document. Keep the pin
+    // during Ask/Apply so focus loss does not destroy its target; while idle,
+    // an empty selection means the old pin is stale and must be cleared.
+    if (!busy) {
+      const text = await readSelectedText();
+      if (!text) {
+        pinnedSelectionText = "";
+        selectionIsPinned = false;
+        await clearSelectionBookmark();
+        pendingPin = Promise.resolve();
+        refreshContextBar();
+        return;
+      }
+    }
+
     // pinCurrentSelection never rejects (it catches internally), so this
     // promise is always safe to await from getSelectionData().
     pendingPin = pinCurrentSelection();
@@ -357,7 +378,7 @@ Office.onReady().then(() => {
       tableRows.some((t) =>
         t.values.flat().some((v) => (v || "").trim().length > 0),
       );
-    if (tableHasData) {
+    if (tableHasData && selText.length > 0) {
       return { type: "table", tables: tableRows, rawText: selText };
     }
 
@@ -376,12 +397,22 @@ Office.onReady().then(() => {
       // also updates pinnedSelectionText.
       await pinCurrentSelection();
       effectiveSelText = selText;
-    } else if (pinnedFromBookmark && pinnedFromBookmark.length > 0) {
+    } else if (selText.length > 0) {
+      // Live selection matches bookmark — use it directly.
+      effectiveSelText = selText;
+    } else if (
+      selectionIsPinned &&
+      pinnedFromBookmark &&
+      pinnedFromBookmark.length > 0
+    ) {
+      // Live selection is empty but a valid pin exists (focus left the doc).
       effectiveSelText = pinnedFromBookmark;
-    } else if (pinnedSelectionText.trim().length > 0) {
+    } else if (selectionIsPinned && pinnedSelectionText.trim().length > 0) {
+      // Pin flag set but bookmark couldn't be read — fall back to cached text.
       effectiveSelText = pinnedSelectionText;
     } else {
-      effectiveSelText = selText;
+      // No selection and no valid pin — treat as empty.
+      effectiveSelText = "";
     }
 
     // Plain text selection (even short) → operate on exactly that text.
@@ -532,21 +563,16 @@ ${tableDesc}`;
     // Full-document mode (nothing selected) — apply changes to the WHOLE file,
     // but ONLY the spots that change. Never paste a review list over the doc.
     if (data.type === "fulldoc") {
-      return `You are editing a Word document. The user did NOT select any text — they want changes applied to the ENTIRE open document below.
+      return `You are checking and editing the ENTIRE open Word document. The user selected no text.
 
-INSTRUCTIONS — pick the match:
+For spelling, grammar, or wording corrections, return ONLY one JSON object. No markdown fence. No explanation. Exact format:
+{"edits":[{"find":"the exact incorrect text from the document","replace":"the corrected text"}]}
 
-- FIX / CORRECT / REPLACE text (spelling, grammar, wording, reformat): you MUST output a fenced JSON block at the end of your reply:
-\`\`\`json
-{"edits":[{"find":"wrong text exactly as written","replace":"corrected text"}]}
-\`\`\`
-  • List EVERY change. Apply to ALL matching occurrences (case-insensitive), INLINE, preserving formatting.
-  • Do NOT rewrite or repeat the whole document. Do NOT output a separate prose list of errors.
-  • One short sentence above the JSON is fine.
-
-- REWRITE or TRANSLATE the entire document: output the COMPLETE revised document text only (no JSON).
-
-- Only a QUESTION or a review with NO changes wanted: answer in plain text (no JSON).
+Rules:
+- Include every correction.
+- Each find value must be copied exactly from the document and be no longer than 255 characters.
+- Replace only incorrect fragments. Never return the whole document.
+- If no correction is needed, return {"edits":[]}.
 
 CURRENT DOCUMENT:
 ${data.text}`;
@@ -609,15 +635,9 @@ ${data.text}`;
         return;
       }
 
-      let docText = selectionData.text || "";
-      const fulldocTruncated =
-        selectionData.type === "fulldoc" && docText.length > MAX_FULLDOC_CHARS;
-      if (fulldocTruncated) {
-        docText =
-          docText.slice(0, MAX_FULLDOC_CHARS) +
-          `\n\n[... còn ${docText.length - MAX_FULLDOC_CHARS} ký tự nữa ...]`;
-      }
-      const displayData = { ...selectionData, text: docText };
+      // No selection means whole open document. Do not silently truncate it;
+      // spelling checks must see and return edits for every part of the file.
+      const displayData = selectionData;
 
       const statusText =
         selectionData.type === "fulldoc"
@@ -625,10 +645,7 @@ ${data.text}`;
           : selectionData.text
             ? `${selectionData.text.length} chars selected`
             : "Table selected";
-      const truncationWarning = fulldocTruncated
-        ? ` ⚠ Tài liệu vượt quá ${MAX_FULLDOC_CHARS} ký tự — chỉ ${MAX_FULLDOC_CHARS} ký tự đầu được gửi tới Hermes.`
-        : "";
-      setStatus(statusText + " — Hermes is thinking…" + truncationWarning);
+      setStatus(statusText + " — Hermes is thinking…");
 
       const sysPrompt = buildSystemPrompt(displayData);
       const payload = [
@@ -683,7 +700,10 @@ ${data.text}`;
         applyBtn.style.display = "block";
         markRedWrap.style.display = "flex";
       } else if (selectionData.type === "fulldoc") {
-        // Prefer inline edits (fix spelling etc.) — only the wrong spots change.
+        // Inline edits only (fix spelling etc.) — only the wrong spots change.
+        // No fulldoc-full fallback: raw prose replies (e.g. a model listing
+        // errors instead of returning JSON edits) must never replace the
+        // entire document. Ask the user to select-all for full rewrites.
         const edits = parseWordEdits(reply);
         if (edits.length > 0) {
           lastProposal = { type: "fulldoc-edits", edits };
@@ -694,28 +714,6 @@ ${data.text}`;
               find: e.find,
               replace: e.replace,
             })),
-          });
-          applyBtn.style.display = "block";
-          markRedWrap.style.display = "flex";
-        } else if (
-          // Compare against what Hermes was ACTUALLY sent, not the full
-          // document: for a doc larger than MAX_FULLDOC_CHARS the model only
-          // ever sees the truncated head, so measuring its reply against the
-          // untruncated length made this test unsatisfiable and silently
-          // discarded every whole-document rewrite/translation of a big file.
-          reply.trim().length >
-          Math.min(selectionData.text.length, MAX_FULLDOC_CHARS) * 0.5
-        ) {
-          // Looks like a full rewrite / translation → replace whole doc.
-          lastProposal = {
-            type: "fulldoc-full",
-            text: stripWrappingFence(reply),
-          };
-          renderProposalCard(preview, {
-            title: "Thay thế toàn bộ văn bản",
-            actions: [
-              { type: "insert", location: "toàn văn bản", text: reply },
-            ],
           });
           applyBtn.style.display = "block";
           markRedWrap.style.display = "flex";
@@ -759,7 +757,8 @@ ${data.text}`;
   }
 
   // Word's Range.search() rejects find strings longer than 255 characters.
-  const MAX_SEARCH_LEN = 255;
+  // Word's Range.search() rejects find strings longer than 255 characters.
+  // MAX_SEARCH_LEN is declared at the top level of this module.
 
   async function applyEdit() {
     if (!lastProposal || busy) return;
@@ -841,13 +840,6 @@ ${data.text}`;
           }
           return { applied, skipped };
         });
-      } else if (lastProposal.type === "fulldoc-full") {
-        await Word.run(async (context) => {
-          const range = context.document.body.getRange();
-          const inserted = range.insertText(lastProposal.text, "Replace");
-          if (markRed) inserted.font.color = "#FF0000";
-          await context.sync();
-        });
       } else {
         // Plain text: replace the pinned selection if its bookmark is still in
         // the document AND still holds the passage this proposal was generated
@@ -912,8 +904,12 @@ ${data.text}`;
           if (canUseBookmark) inserted.insertBookmark(PIN_BOOKMARK_NAME);
           await context.sync();
         });
-        pinnedSelectionText = lastProposal.text.trim();
-        capturedSelectionText = pinnedSelectionText;
+        // Selection proposal is complete. Do not let its bookmark affect the
+        // next Ask: with no new selection, next request must use full document.
+        pinnedSelectionText = "";
+        selectionIsPinned = false;
+        capturedSelectionText = "";
+        await clearSelectionBookmark();
       }
       const n =
         lastProposal.type === "table"
