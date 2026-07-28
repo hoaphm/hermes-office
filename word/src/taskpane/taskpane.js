@@ -831,6 +831,12 @@ ${data.text}`;
                 skipped++;
                 continue;
               }
+              if (ranges.items.length > 1) {
+                showToast(
+                  `"${edit.find}" xuất hiện ${ranges.items.length} lần — sẽ thay TẤT CẢ.`,
+                  { tone: "warn", timeout: 4000 },
+                );
+              }
               ranges.items.forEach((r) => {
                 const inserted = r.insertText(String(edit.replace), "Replace");
                 if (markRed) inserted.font.color = "#FF0000";
