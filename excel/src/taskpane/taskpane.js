@@ -433,7 +433,6 @@ async function apply() {
               // we already synced after loading `values` above.
               r.values = [[literalCellValue(a.new)]];
               if (highlight) r.format.fill.color = "#C6EFCE";
-              applied++;
               failures.push("__skip_sync__");
               break;
             }

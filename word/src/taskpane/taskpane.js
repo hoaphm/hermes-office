@@ -668,10 +668,21 @@ ${data.text}`;
           // just grab sel.tables.items[0] at click time, so selecting a
           // different table before clicking Apply wrote the changes into the
           // wrong table.
+          const table = selectionData.tables[0];
           lastProposal = {
             type: "table",
-            changes: tableChanges,
-            tableSig: tableSignature(selectionData.tables[0]),
+            changes: tableChanges.map((change) => {
+              const pos = cellRefToPosition(
+                change.cell,
+                table.rowCount,
+                table.columnCount,
+              );
+              return {
+                ...change,
+                old: pos ? table.values[pos.row][pos.col] : undefined,
+              };
+            }),
+            tableSig: tableSignature(table),
           };
           // Render via the shared card so Word and Excel get the same visual
           // treatment for proposals. tableChanges here are plain {cell, value}
@@ -679,10 +690,10 @@ ${data.text}`;
           // shape that describeAction() understands.
           renderProposalCard(preview, {
             title: "Cập nhật bảng đã chọn",
-            actions: tableChanges.map((c) => ({
+            actions: lastProposal.changes.map((c) => ({
               type: "setCell",
               cell: c.cell,
-              old: c.value,
+              old: c.old,
               new: c.value,
             })),
           });
@@ -763,6 +774,14 @@ ${data.text}`;
   // Word's Range.search() rejects find strings longer than 255 characters.
   // MAX_SEARCH_LEN is declared at the top level of this module.
 
+  function hasChainedEdits(edits) {
+    return edits.some(
+      (edit, i) =>
+        edit.replace &&
+        edits.some((other, j) => i !== j && edit.replace.includes(other.find)),
+    );
+  }
+
   async function applyEdit() {
     if (!lastProposal || busy) return;
 
@@ -789,22 +808,39 @@ ${data.text}`;
           table.load(["rowCount", "columnCount"]);
           await context.sync();
 
+          const cells = [];
           for (const change of lastProposal.changes) {
             const pos = cellRefToPosition(
               change.cell,
               table.rowCount,
               table.columnCount,
             );
-            if (!pos) continue;
-            const cell = table.getCell(pos.row, pos.col);
-            const inserted = cell.body
-              .getRange()
-              .insertText(String(change.value), "Replace");
+            if (!pos || change.old === undefined)
+              throw new Error("Đề xuất có ô không hợp lệ. Hãy hỏi lại Hermes.");
+            const range = table.getCell(pos.row, pos.col).body.getRange();
+            range.load("text");
+            cells.push({ change, range });
+          }
+          await context.sync();
+          if (
+            cells.some(
+              ({ change, range }) => (range.text || "").trim() !== change.old,
+            )
+          )
+            throw new Error(
+              "Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.",
+            );
+          for (const { change, range } of cells) {
+            const inserted = range.insertText(String(change.value), "Replace");
             if (markRed) inserted.font.color = "#FF0000";
           }
           await context.sync();
         });
       } else if (lastProposal.type === "fulldoc-edits") {
+        if (hasChainedEdits(lastProposal.edits))
+          throw new Error(
+            "Đề xuất có các chỉnh sửa chồng chéo. Hãy hỏi lại Hermes.",
+          );
         // Inline search-and-replace for each edit — only wrong spots change,
         // surrounding formatting is preserved. Each edit is applied and
         // sync'd independently so one bad edit (search text too long, or no
