@@ -73,10 +73,6 @@ module.exports = async (env, options) => {
             from: "../shared/design-system.css",
             to: "assets/design-system.css",
           },
-        ],
-      }),
-      new CopyWebpackPlugin({
-        patterns: [
           {
             from: "manifest*.xml",
             to: "[name][ext][query]",
@@ -100,6 +96,13 @@ module.exports = async (env, options) => {
       },
       https: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
       port: process.env.npm_package_config_dev_server_port || 3000,
+      proxy: [
+        {
+          context: ["/v1"],
+          target: "https://localhost:8643",
+          secure: false,
+        },
+      ],
     };
   }
 

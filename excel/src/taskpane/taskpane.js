@@ -175,13 +175,27 @@ async function getSnapshot() {
     const sheet = context.workbook.worksheets.getActiveWorksheet();
     sheet.load("name");
 
-    // Read the user's current selection (single cell or range)
+    // Read the user's current selection (single cell or range), then cap it
+    // by the same row/column/byte limits as the used-range snapshot — a user
+    // who selects A1:XFD1048576 would otherwise freeze the task pane.
     let selection = null;
     try {
       const sel = context.workbook.getSelectedRange();
       sel.load(["address", "values"]);
       await context.sync();
-      if (sel.address) selection = { address: sel.address, values: sel.values };
+      if (sel.address) {
+        let sv = sel.values;
+        if (sv && sv.length > MAX_ROWS) {
+          sv = sv.slice(0, MAX_ROWS);
+        }
+        if (sv && sv.length > 0 && sv[0].length > MAX_COLS) {
+          sv = sv.map((r) => r.slice(0, MAX_COLS));
+        }
+        if (sv && JSON.stringify(sv).length > MAX_SNAPSHOT_BYTES) {
+          sv = [];
+        }
+        selection = { address: sel.address, values: sv || [] };
+      }
     } catch {
       /* no selection or multi-area — ignore */
     }
@@ -213,10 +227,11 @@ async function getSnapshot() {
       colsTruncated = true;
     }
     // Belt-and-suspenders: even within the row/col caps a sheet of long
-    // strings can serialize to a huge payload — halve the row count until it
-    // fits rather than sending a giant blob to Hermes.
-    while (values.length > 1 && JSON.stringify(values).length > MAX_SNAPSHOT_BYTES) {
+    // strings can blow the payload up. Halve rows until under the byte cap.
+    let payloadBytes = JSON.stringify(values).length;
+    while (payloadBytes > MAX_SNAPSHOT_BYTES && values.length > 1) {
       values = values.slice(0, Math.ceil(values.length / 2));
+      payloadBytes = JSON.stringify(values).length;
       bytesTruncated = true;
     }
     return {
@@ -400,8 +415,26 @@ async function apply() {
             }
             case "setCell": {
               const r = resolveRange(wb, sheet, a.cell);
+              // Check the value hasn't changed since the proposal was made.
+              // Write "old" first so the downstream .values read reflects it.
+              if (a.old !== undefined) {
+                r.load("values");
+                await context.sync();
+                const cur = String((r.values || [[null]])[0][0] ?? "");
+                if (cur !== String(a.old)) {
+                  skipped++;
+                  failures.push(
+                    `${describe(a)}: bị bỏ qua — giá trị hiện tại ("${cur}") khác với giá trị gốc ("${a.old}") của đề xuất.`
+                  );
+                  break;
+                }
+              }
+              // Write and skip the duplicate sync at the bottom of the loop —
+              // we already synced after loading `values` above.
               r.values = [[literalCellValue(a.new)]];
               if (highlight) r.format.fill.color = "#C6EFCE";
+              applied++;
+              failures.push("__skip_sync__");
               break;
             }
             case "setCells": {
@@ -454,7 +487,14 @@ async function apply() {
           // so a single bad range/malformed action surfaces its own error
           // and can be skipped, rather than aborting — or silently losing
           // track of which action failed in — the whole batch.
-          await context.sync();
+          // setCell with old-value guard already synced and committed its
+          // write; skip a second sync.
+          const lastFailure = failures.length > 0 ? failures[failures.length - 1] : null;
+          if (lastFailure === "__skip_sync__") {
+            failures.pop();
+          } else {
+            await context.sync();
+          }
           applied++;
         } catch (actionErr) {
           skipped++;

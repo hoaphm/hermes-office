@@ -7,7 +7,23 @@
 # Run with:  caddy run
 
 localhost:8643 {
-    reverse_proxy 127.0.0.1:8642 {
-        header_up Authorization "Bearer YOUR_API_SERVER_KEY"
+    # Serve built add-in bundles so Office sideload can render task panes.
+    handle_path /word/* {
+        root * word/dist
+        file_server
     }
+    handle_path /excel/* {
+        root * excel/dist
+        file_server
+    }
+
+    # Route API calls to the Hermes API server.
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:8642 {
+            header_up Authorization "Bearer YOUR_API_SERVER_KEY"
+        }
+    }
+
+    # Redirect everything else.
+    redir / https://localhost:8643/word/taskpane.html
 }

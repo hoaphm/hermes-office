@@ -512,11 +512,14 @@ Office.onReady().then(() => {
     body.load("tables/items");
     await context.sync();
 
-    for (const table of sel.tables.items.concat(body.tables.items)) {
+    const matches = [];
+    for (const table of new Set(sel.tables.items.concat(body.tables.items))) {
       const [snap] = await readTableCells(context, [table]);
-      if (snap && tableSignature(snap) === sig) return table;
+      if (snap && tableSignature(snap) === sig) matches.push(table);
     }
-    return null;
+    // Same contents can appear in multiple tables. Picking the first match
+    // would write a proposal into an unrelated table.
+    return matches.length === 1 ? matches[0] : null;
   }
 
   function formatTablePreview(tbl) {
@@ -879,14 +882,14 @@ ${data.text}`;
             });
             ranges.load("items");
             await context.sync();
-            if (ranges.items.length > 0) {
+            if (ranges.items.length === 1) {
               inserted = ranges.items[0].insertText(
                 lastProposal.text,
                 "Replace",
               );
             } else {
               throw new Error(
-                "Không tìm thấy đoạn văn bản đã chọn để thay thế. Hãy chọn lại đoạn đó rồi Apply.",
+                "Không thể xác định duy nhất đoạn văn bản gốc. Hãy chọn lại đoạn đó rồi hỏi lại Hermes.",
               );
             }
           } else if (capturedSelectionText) {
