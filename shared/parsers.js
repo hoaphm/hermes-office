@@ -80,15 +80,109 @@ export function parseEdits(reply) {
       const obj = JSON.parse(c.trim());
       const edits = obj && obj.edits;
       if (Array.isArray(edits)) {
-        return edits
-          .filter((e) => e && typeof e.find === "string" && e.find.length > 0)
-          .map((e) => ({ find: e.find, replace: e.replace === undefined ? "" : String(e.replace) }));
+        return dedupeEdits(
+          edits
+            .filter((e) => e && typeof e.find === "string" && e.find.length > 0)
+            .map((e) => ({ find: e.find, replace: e.replace === undefined ? "" : String(e.replace) }))
+        );
       }
     } catch {
       /* try next candidate */
     }
   }
   return [];
+}
+
+// Models routinely list the same correction once per occurrence in the
+// document ("hoc" -> "học", twice). Apply replaces ALL matches of a find
+// string, so the second copy matches nothing and got counted as skipped —
+// reporting a failure on a run where everything worked. A different replace
+// for the same find is a real (if risky) instruction, so only exact
+// find+replace pairs collapse.
+function dedupeEdits(edits) {
+  const seen = new Set();
+  return edits.filter((e) => {
+    const key = `${e.find}\u0000${e.replace}`;
+    // A raw separator byte, written as an escape so this file stays plain
+    // text — an actual NUL made `file` report "data" and grep skip the
+    // file entirely. It must not be a space: {find:"a b", replace:"c"} and
+    // {find:"a", replace:"b c"} would then share a key and the second
+    // would be dropped as a false duplicate.
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// Word's Range.search() rejects find strings longer than 255 characters.
+export const MAX_SEARCH_LEN = 255;
+
+// ...and it has no matchWholeWord in this flow, so it matches SUBSTRINGS and
+// Apply rewrites every hit. A 2-character find such as "va" (-> "và") would
+// therefore also corrupt the inside of "van", "vay", "vang", "vai". Refuse
+// those instead of guessing.
+//
+// The floor is deliberately 3 rather than higher: "hoc" -> "học" is a
+// 3-character correction and among the most common Vietnamese typos, so a
+// stricter bar would discard far more real corrections than it prevents.
+export const MIN_SEARCH_LEN = 3;
+
+// Split edits into what Apply can safely search for and what it must refuse.
+// Returning the refused ones (rather than dropping them) is the point: the
+// user asked for a spell-check, so a correction we decline to make has to be
+// reported, not silently swallowed.
+export function partitionEdits(edits, { minLen = MIN_SEARCH_LEN, maxLen = MAX_SEARCH_LEN } = {}) {
+  const applicable = [];
+  const tooShort = [];
+  const tooLong = [];
+  for (const e of edits || []) {
+    if (!e || typeof e.find !== "string" || e.find.length === 0) continue;
+    // Count real characters, and ignore padding: " va " carries two
+    // characters of signal, and whitespace must not buy a dangerous find
+    // its way past the floor.
+    const signal = [...e.find.trim()].length;
+    if (signal < minLen) tooShort.push(e);
+    else if (e.find.length > maxLen) tooLong.push(e);
+    else applicable.push(e);
+  }
+  return { applicable, tooShort, tooLong };
+}
+
+// One pass over a full-document reply, returning everything the task pane
+// needs to decide what to show:
+//   edits      — parsed, deduped corrections
+//   structured — the model actually returned an {"edits": [...]} object.
+//                Distinguishes "complied, found nothing" (edits: []) from
+//                "ignored the contract and wrote prose", which need different
+//                messages: the first is success, the second is a miss.
+//   prose      — the reply with the JSON payload removed, safe to show in the
+//                chat bubble. Word used to print the whole raw reply, so a
+//                correct `{"edits":[]}` surfaced to the user as literal JSON.
+export function parseEditsReply(reply) {
+  const raw = String(reply ?? "");
+  const edits = parseEdits(raw);
+
+  // Locate the payload we parsed so it can be cut from the displayed text.
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  let payload = null;
+  if (fenced && /"edits"\s*:/.test(fenced[1])) payload = fenced[0];
+  else {
+    const bare = extractJsonObject(raw, "edits");
+    if (bare) payload = bare;
+  }
+
+  let structured = false;
+  if (payload) {
+    const inner = fenced && payload === fenced[0] ? fenced[1] : payload;
+    try {
+      structured = Array.isArray(JSON.parse(inner.trim()).edits);
+    } catch {
+      structured = false;
+    }
+  }
+
+  const prose = (payload ? raw.replace(payload, "") : raw).trim();
+  return { edits, structured, prose };
 }
 
 export function parseTableChanges(reply) {

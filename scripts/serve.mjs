@@ -6,10 +6,22 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 if (!fs.existsSync(path.join(root, "Caddyfile"))) {
-  console.error("Missing Caddyfile. Run npm run setup first.");
+  console.error("Missing Caddyfile. Run `npm run setup` first (it creates one from Caddyfile.example).");
   process.exit(1);
 }
+if (!fs.existsSync(path.join(root, "config.json"))) {
+  console.error("Missing config.json. Run `npm run setup` first — the add-ins cannot reach a provider without it.");
+  process.exit(1);
+}
+for (const app of ["word", "excel"]) {
+  if (!fs.existsSync(path.join(root, app, "dist", "taskpane.html"))) {
+    console.error(`Missing ${app}/dist. Run \`npm run build\` first.`);
+    process.exit(1);
+  }
+}
+
 const child = spawn("caddy", ["run", "--config", path.join(root, "Caddyfile")], {
   cwd: root,
   stdio: "inherit",

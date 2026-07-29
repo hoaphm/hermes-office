@@ -1,5 +1,6 @@
-/* eslint-disable no-undef */
+/* global require, module, process, __dirname */
 
+const path = require("path");
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const CustomFunctionsMetadataPlugin = require("custom-functions-metadata-plugin");
@@ -10,8 +11,6 @@ const urlProd = "https://localhost:8643/excel/";
 // the manifest has a dozen dev URLs, so this must be a global regex.
 const urlDevPattern = /https:\/\/localhost:3000\//g;
 
-/* global require, module, process */
-
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
   return { ca: httpsOptions.ca, key: httpsOptions.key, cert: httpsOptions.cert };
@@ -20,11 +19,16 @@ async function getHttpsOptions() {
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
   const config = {
-    devtool: "source-map",
+    // Source maps are a dev aid; the production bundle is served locally and
+    // does not need to ship them.
+    devtool: dev ? "source-map" : false,
     entry: {
       polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
       taskpane: ["./src/taskpane/taskpane.js", "./src/taskpane/taskpane.html"],
-      commands: "./src/commands/commands.js",
+      // No `commands` entry: the ribbon button uses ShowTaskpane, declared
+      // entirely in manifest.xml. The chunk held nothing but an empty
+      // Office.onReady() and was being injected into taskpane.html, where it
+      // ran a second, pointless onReady.
       functions: "./src/functions/functions.js",
     },
     output: {
@@ -69,7 +73,7 @@ module.exports = async (env, options) => {
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
-        chunks: ["polyfill", "taskpane", "functions", "commands"],
+        chunks: ["polyfill", "taskpane", "functions"],
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -92,27 +96,30 @@ module.exports = async (env, options) => {
               }
             },
           },
-          // Production config template — copy as config.json for direct provider calls.
-          ...(dev ? [] : [{ from: "../config.example.json", to: "config.json" }]),
+          // No config.json is copied here. The task pane fetches the
+          // root-relative "/config.json", which Caddy serves from the repo
+          // root, so a copy in dist/ was never read — it only duplicated the
+          // API key into the folder users are told to open when sideloading,
+          // and each rebuild overwrote the real key with the placeholder.
         ],
       }),
     ],
     devServer: {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-      },
+      // Serve the repo root so the task pane's fetch("/config.json") resolves
+      // to the same config.json Caddy serves in production.
+      static: [
+        { directory: path.resolve(__dirname, ".."), publicPath: "/" },
+        { directory: path.resolve(__dirname, "dist"), publicPath: "/" },
+      ],
       server: {
         type: "https",
         options: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
       },
       port: process.env.npm_package_config_dev_server_port || 3000,
-      proxy: [
-        {
-          context: ["/v1"],
-          target: "https://localhost:8643",
-          secure: false,
-        },
-      ],
+      // No /v1 proxy and no wildcard CORS header: add-ins call the configured
+      // provider directly from the WebView, and everything the pane fetches
+      // from this server is same-origin. The old proxy pointed at a Caddy
+      // reverse-proxy hop that no longer exists.
     },
   };
 

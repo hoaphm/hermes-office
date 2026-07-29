@@ -1,4 +1,11 @@
 import { askHermes } from "../shared/hermes";
+// Custom functions are drag-fillable, so a fill handle dragged down a column
+// becomes one LLM call per cell. Every call below goes through this shared
+// gate, which memoises answers, collapses duplicate concurrent requests, and
+// caps how many are in flight — see shared/fn-cache.js.
+import { createLimitedCache } from "../../../shared/fn-cache.js";
+
+const cache = createLimitedCache();
 
 function ikey(name, args) {
   return name + ":" + JSON.stringify(args);
@@ -10,6 +17,14 @@ function clean(s) {
     .trim();
 }
 
+// One call path for all four functions: same key is used both as the cache
+// identity and as the provider Idempotency-Key header.
+async function call(name, args, messages) {
+  const key = ikey(name, args);
+  const out = await cache.run(key, () => askHermes(messages, { idempotencyKey: key }));
+  return clean(out);
+}
+
 /**
  * Classify a value with Hermes.
  * @customfunction CLASSIFY
@@ -18,16 +33,16 @@ function clean(s) {
  * @returns {Promise<string>} The label.
  */
 export async function classify(value, instruction) {
-  const out = await askHermes(
+  return call(
+    "CLASSIFY",
+    [value, instruction],
     [
       {
         role: "user",
         content: `Classify the text per this instruction: ${instruction}.\nReply with ONLY the label, no punctuation.\n\nText: ${value}`,
       },
-    ],
-    { idempotencyKey: ikey("CLASSIFY", [value, instruction]) }
+    ]
   );
-  return clean(out);
 }
 
 /**
@@ -38,16 +53,16 @@ export async function classify(value, instruction) {
  * @returns {Promise<string>} The extracted value.
  */
 export async function extract(value, what) {
-  const out = await askHermes(
+  return call(
+    "EXTRACT",
+    [value, what],
     [
       {
         role: "user",
         content: `Extract the ${what} from the text. Reply with ONLY the value, or an empty string if none.\n\nText: ${value}`,
       },
-    ],
-    { idempotencyKey: ikey("EXTRACT", [value, what]) }
+    ]
   );
-  return clean(out);
 }
 
 /**
@@ -57,16 +72,12 @@ export async function extract(value, what) {
  * @returns {Promise<string>} One-sentence summary.
  */
 export async function summarize(values) {
-  const out = await askHermes(
-    [
-      {
-        role: "user",
-        content: `Summarize this data in ONE short sentence:\n${JSON.stringify(values)}`,
-      },
-    ],
-    { idempotencyKey: ikey("SUMMARIZE", values) }
-  );
-  return clean(out);
+  return call("SUMMARIZE", values, [
+    {
+      role: "user",
+      content: `Summarize this data in ONE short sentence:\n${JSON.stringify(values)}`,
+    },
+  ]);
 }
 
 /**
@@ -76,14 +87,14 @@ export async function summarize(values) {
  * @returns {Promise<string>} A single Excel formula.
  */
 export async function formulaHelp(goal) {
-  const out = await askHermes(
+  return call(
+    "FORMULA_HELP",
+    [goal],
     [
       {
         role: "user",
         content: `Give a single Excel formula that accomplishes: ${goal}. Reply with ONLY the formula, starting with =.`,
       },
-    ],
-    { idempotencyKey: ikey("FORMULA_HELP", [goal]) }
+    ]
   );
-  return clean(out);
 }

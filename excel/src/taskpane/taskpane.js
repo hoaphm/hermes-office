@@ -459,6 +459,11 @@ async function apply() {
               // Check the value hasn't changed since the proposal was made.
               if (a.old !== undefined) {
                 r.load("values");
+                // Intentional per-action sync: the staleness guard has to read
+                // the CURRENT cell before deciding to write it. Batching these
+                // reads up front would compare against values captured before
+                // earlier actions in this same batch had landed.
+                // eslint-disable-next-line office-addins/no-context-sync-in-loop
                 await context.sync();
                 const cur = String((r.values || [[null]])[0][0] ?? "");
                 if (cur !== String(a.old)) {
@@ -466,7 +471,11 @@ async function apply() {
                   failures.push(
                     `${describe(a)}: bị bỏ qua — giá trị hiện tại ("${cur}") khác với giá trị gốc ("${a.old}") của đề xuất.`
                   );
-                  break;
+                  // `continue` the loop, not `break` the switch: a `break`
+                  // fell through to the `applied++` below, so one stale cell
+                  // was counted as BOTH applied and skipped and the summary
+                  // claimed a write that never happened.
+                  continue;
                 }
               }
               r.values = [[literalCellValue(a.new)]];
@@ -489,6 +498,11 @@ async function apply() {
                   columnCount = dims.columnCount;
                 } else {
                   r.load(["rowCount", "columnCount"]);
+                  // Fallback path only. Dimensions for the common case are
+                  // pre-loaded in ONE sync above (formatDims); this runs only
+                  // when a preceding newSheet/renameSheet made the target
+                  // sheet unresolvable at pre-load time.
+                  // eslint-disable-next-line office-addins/no-context-sync-in-loop
                   await context.sync();
                   rowCount = r.rowCount;
                   columnCount = r.columnCount;
@@ -523,14 +537,18 @@ async function apply() {
           // so a single bad range/malformed action surfaces its own error
           // and can be skipped, rather than aborting — or silently losing
           // track of which action failed in — the whole batch.
-          // setCell with old-value guard already synced and committed its
-          // write; skip a second sync.
-          const lastFailure = failures.length > 0 ? failures[failures.length - 1] : null;
-          if (lastFailure === "__skip_sync__") {
-            failures.pop();
-          } else {
-            await context.sync();
-          }
+          //
+          // Always sync. A previous version tried to skip this for setCell
+          // via a "__skip_sync__" sentinel that nothing ever pushed, so the
+          // branch was dead — which was lucky: setCell's guard syncs BEFORE
+          // assigning r.values, so this sync is what actually commits the
+          // write.
+          //
+          // Intentional per-action sync: syncing once at the end would make a
+          // single malformed range abort the whole batch with no way to tell
+          // which action failed.
+          // eslint-disable-next-line office-addins/no-context-sync-in-loop
+          await context.sync();
           applied++;
         } catch (actionErr) {
           skipped++;

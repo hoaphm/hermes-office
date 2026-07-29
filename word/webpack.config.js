@@ -1,3 +1,6 @@
+/* global require, module, process, __dirname */
+
+const path = require("path");
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
@@ -17,11 +20,15 @@ async function getHttpsOptions() {
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
   const config = {
-    devtool: "source-map",
+    // Source maps are a dev aid; the production bundle is served locally and
+    // does not need to ship them.
+    devtool: dev ? "source-map" : false,
     entry: {
       polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
       taskpane: ["./src/taskpane/taskpane.js", "./src/taskpane/taskpane.html"],
-      commands: "./src/commands/commands.js",
+      // No `commands` entry: the ribbon button uses ShowTaskpane, declared
+      // entirely in manifest.xml, so there was no runtime code to load and
+      // the manifest never referenced the emitted chunk.
     },
     output: {
       clean: true,
@@ -83,8 +90,11 @@ module.exports = async (env, options) => {
               return content.toString().replace(urlDevPattern, urlProd);
             },
           },
-          // Production config template — replace with user values before serving.
-          ...(dev ? [] : [{ from: "../config.example.json", to: "config.json" }]),
+          // No config.json is copied here. The task pane fetches the
+          // root-relative "/config.json", which Caddy serves from the repo
+          // root, so a copy in dist/ was never read — it only duplicated the
+          // API key into the folder users are told to open when sideloading,
+          // and each rebuild overwrote the real key with the placeholder.
         ],
       }),
     ],
@@ -92,19 +102,18 @@ module.exports = async (env, options) => {
 
   if (dev) {
     config.devServer = {
-      static: { directory: process.cwd() },
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-      },
+      // Serve the repo root, not word/, so the task pane's fetch("/config.json")
+      // resolves to the same config.json Caddy serves in production. Pointing
+      // this at process.cwd() (= word/) meant dev could never load a provider.
+      static: [
+        { directory: path.resolve(__dirname, ".."), publicPath: "/" },
+        { directory: path.resolve(__dirname, "dist"), publicPath: "/" },
+      ],
       https: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
       port: process.env.npm_package_config_dev_server_port || 3000,
-      proxy: [
-        {
-          context: ["/v1"],
-          target: "https://localhost:8643",
-          secure: false,
-        },
-      ],
+      // No /v1 proxy: add-ins call the configured provider directly from the
+      // WebView. The old proxy pointed at a Caddy reverse-proxy hop that no
+      // longer exists.
     };
   }
 

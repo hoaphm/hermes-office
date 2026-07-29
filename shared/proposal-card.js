@@ -10,8 +10,11 @@
 import {
   columnIndexToLetters,
   columnLettersToIndex,
-  parseEdits,
+  parseEditsReply,
   parseTableChanges,
+  partitionEdits,
+  MIN_SEARCH_LEN,
+  MAX_SEARCH_LEN,
 } from "./parsers.js";
 
 const esc = (s) =>
@@ -337,12 +340,21 @@ export function setBusy(btn, busy) {
 
 // ---- Word-specific helpers -------------------------------------------------
 
-export function parseWordEdits(raw) {
-  return parseEdits(raw);
+// Returns { edits, structured, prose } — not a bare array. The task pane needs
+// all three to tell "found nothing" apart from "ignored the JSON contract",
+// and to keep raw JSON out of the chat bubble.
+export function parseWordEditsReply(raw) {
+  return parseEditsReply(raw);
 }
 
 export function parseWordTableChanges(raw) {
   return parseTableChanges(raw);
 }
 
-export { columnIndexToLetters, columnLettersToIndex };
+export {
+  columnIndexToLetters,
+  columnLettersToIndex,
+  partitionEdits,
+  MIN_SEARCH_LEN,
+  MAX_SEARCH_LEN,
+};

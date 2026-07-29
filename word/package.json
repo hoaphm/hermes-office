@@ -1,6 +1,6 @@
 {
   "name": "hermes-word",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hermes agent inside Word — task-pane chat + AI document editing.",
   "private": true,
   "engines": {
@@ -13,10 +13,14 @@
   },
   "scripts": {
     "build": "webpack --mode production",
+    "build:dev": "webpack --mode development",
+    "dev-server": "webpack serve --mode development",
+    "watch": "webpack --mode development --watch",
     "lint": "office-addin-lint check",
     "lint:fix": "office-addin-lint fix",
     "start": "office-addin-debugging start manifest.xml",
-    "stop": "office-addin-debugging stop manifest.xml"
+    "stop": "office-addin-debugging stop manifest.xml",
+    "validate": "office-addin-manifest validate manifest.xml"
   },
   "dependencies": {
     "core-js": "^3.36.0",
@@ -33,6 +37,7 @@
     "office-addin-debugging": "^6.0.3",
     "office-addin-dev-certs": "^2.0.3",
     "office-addin-lint": "^3.0.3",
+    "office-addin-manifest": "^2.1.6",
     "webpack": "^5.90.3",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^5.0.2"

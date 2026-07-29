@@ -916,9 +916,11 @@ body {
   cursor: pointer;
 }
 
-.ds-toggle-row[data-show="false"] {
-  display: none;
-}
+/* Visibility is owned by the [hidden] attribute (see Utilities at the bottom
+ * of this file), which the task panes toggle from JS. A
+ * `[data-show="false"] { display: none }` rule used to live here too; because
+ * nothing ever cleared that attribute it outranked the display:flex above and
+ * kept both toggles permanently invisible. One mechanism only. */
 
 /* ---- Footer-level Apply CTA ---------------------------------------------
  * Owns its spacing so the taskpane HTML carries no inline styles. The

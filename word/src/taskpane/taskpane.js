@@ -8,8 +8,11 @@ import { askHermes } from "../shared/hermes.js";
 import {
   columnIndexToLetters,
   columnLettersToIndex,
-  parseWordEdits,
+  parseWordEditsReply,
   parseWordTableChanges,
+  partitionEdits,
+  MIN_SEARCH_LEN,
+  MAX_SEARCH_LEN,
   appendMessage,
   appendTypingIndicator,
   removeTypingIndicator,
@@ -20,8 +23,8 @@ import {
   renderProposalCard,
 } from "../../../shared/proposal-card.js";
 
-// Word's Range.search() rejects find strings longer than 255 characters.
-const MAX_SEARCH_LEN = 255;
+// MAX_SEARCH_LEN / MIN_SEARCH_LEN come from shared/parsers.js, next to
+// partitionEdits which enforces them — one definition, not two.
 // Keep full-document prompts bounded so large files do not exceed model context.
 const MAX_FULLDOC_CHARS = 120000;
 
@@ -449,6 +452,10 @@ Office.onReady().then(() => {
     const rows = [];
     for (const table of tables) {
       table.load(["rowCount", "columnCount"]);
+      // Two intentional syncs per table, not per cell: the dimensions must be
+      // known before the cell ranges can be enumerated at all. In practice
+      // `tables` holds one table.
+      // eslint-disable-next-line office-addins/no-context-sync-in-loop
       await context.sync();
       // Load every cell's range up front and sync ONCE per table, instead of
       // round-tripping per cell — and read .text off the same range object
@@ -463,6 +470,7 @@ Office.onReady().then(() => {
         }
         rangeRows.push(rangeRow);
       }
+      // eslint-disable-next-line office-addins/no-context-sync-in-loop
       await context.sync();
       const values = rangeRows.map((rangeRow) =>
         rangeRow.map((range) => (range.text || "").trim()),
@@ -481,6 +489,9 @@ Office.onReady().then(() => {
   async function detectSelectedTable() {
     const fromSelection = await Word.run(async (context) => {
       const sel = context.document.getSelection();
+      // Navigational load is the point: we need the table objects themselves,
+      // and the selection holds at most a handful.
+      // eslint-disable-next-line office-addins/no-navigational-load
       sel.load("tables/items");
       await context.sync();
       // The rule wants "tables/items/length" loaded explicitly, but .length is
@@ -493,6 +504,9 @@ Office.onReady().then(() => {
 
     const fromParent = await Word.run(async (context) => {
       const sel = context.document.getSelection();
+      // Navigational load is the only way to ask "is the cursor inside a
+      // table?" without throwing when it is not.
+      // eslint-disable-next-line office-addins/no-navigational-load
       sel.load("parentTable/isNullObject");
       await context.sync();
       if (sel.parentTable.isNullObject) return null;
@@ -522,6 +536,9 @@ Office.onReady().then(() => {
   // writing into whatever table happens to be selected now.
   async function findProposalTable(context, sig) {
     const sel = context.document.getSelection();
+    // Both navigational loads are required: Apply has to re-find the proposal's
+    // table by content, which means holding the actual Table objects.
+    // eslint-disable-next-line office-addins/no-navigational-load
     sel.load("tables/items");
     const body = context.document.body;
     body.load("tables/items");
@@ -706,7 +723,10 @@ ${data.text}`;
       const reply = await askHermes(payload);
       removeTypingIndicator(typingEl);
       typingEl = null;
-      addMsg("bot", reply);
+      // Full-document mode asks the model for a bare JSON object, so echoing
+      // the raw reply put literal `{"edits":[...]}` in the chat. The bubble is
+      // added inside that branch below, from the prose only.
+      if (selectionData.type !== "fulldoc") addMsg("bot", reply);
 
       if (selectionData.type === "table") {
         const tableChanges = parseWordTableChanges(reply);
@@ -765,8 +785,9 @@ ${data.text}`;
         // No fulldoc-full fallback: raw prose replies (e.g. a model listing
         // errors instead of returning JSON edits) must never replace the
         // entire document. Ask the user to select-all for full rewrites.
-        const edits = parseWordEdits(reply);
+        const { edits, structured, prose } = parseWordEditsReply(reply);
         if (edits.length > 0) {
+          if (prose) addMsg("bot", prose);
           lastProposal = { type: "fulldoc-edits", edits };
           renderProposalCard(preview, {
             title: "Sửa nhanh toàn văn bản",
@@ -778,12 +799,37 @@ ${data.text}`;
           });
           applyBtn.hidden = false;
           markRedWrap.hidden = false;
+          // Warn at proposal time, not only after Apply — the user should
+          // know what will be refused before deciding to click.
+          const preview_ = partitionEdits(edits);
+          if (preview_.tooShort.length > 0) {
+            addMsg(
+              "bot",
+              `⚠ ${preview_.tooShort.length} sửa sẽ bị bỏ qua vì chuỗi tìm ngắn hơn ${MIN_SEARCH_LEN} ký tự ` +
+                `(${preview_.tooShort.map((e) => `“${e.find}”`).join(", ")}) — dễ khớp nhầm vào giữa từ khác.`,
+              { tone: "warn" },
+            );
+          }
         } else {
-          // Plain answer / review — nothing to apply.
           lastProposal = null;
-          preview.innerHTML = `<div class="ds-card-action"><div class="label">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div></div>`;
           applyBtn.hidden = true;
           markRedWrap.hidden = true;
+          if (structured) {
+            // The model followed the contract and reported nothing to fix.
+            // That is a successful result, not a non-answer — saying "this is
+            // a comment, not applicable" made a clean document look like a
+            // failure.
+            addMsg("bot", prose || "Không tìm thấy lỗi nào cần sửa.", {
+              tone: "ok",
+            });
+            preview.innerHTML = "";
+            setStatus("Không có lỗi nào.");
+          } else {
+            // The model answered in prose instead of the JSON contract, so
+            // there is nothing safe to apply.
+            addMsg("bot", prose || reply);
+            preview.innerHTML = `<div class="ds-card-action"><div class="label">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div></div>`;
+          }
         }
       }
 
@@ -819,8 +865,8 @@ ${data.text}`;
     return { row, col };
   }
 
-  // Word's Range.search() rejects find strings longer than 255 characters.
-  // MAX_SEARCH_LEN is declared at the top level of this module.
+  // MAX_SEARCH_LEN / MIN_SEARCH_LEN are imported from shared/parsers.js and
+  // enforced by partitionEdits().
 
   function hasChainedEdits(edits) {
     return edits.some(
@@ -893,26 +939,33 @@ ${data.text}`;
         // surrounding formatting is preserved. Each edit is applied and
         // sync'd independently so one bad edit (search text too long, or no
         // longer found) can't abort the rest of the batch.
+        // Refuse unsearchable finds up front rather than handing them to
+        // body.search(). Short ones are the dangerous case: search has no
+        // matchWholeWord here, so "va" would also rewrite the inside of
+        // "van"/"vay"/"vang". See partitionEdits in shared/parsers.js.
+        const { applicable, tooShort, tooLong } = partitionEdits(
+          lastProposal.edits,
+        );
         editStats = await Word.run(async (context) => {
           let applied = 0;
-          let skipped = 0;
-          for (const edit of lastProposal.edits) {
-            if (!edit.find || edit.find.length > MAX_SEARCH_LEN) {
-              skipped++;
-              continue;
-            }
+          let notFound = 0;
+          for (const edit of applicable) {
             try {
               const ranges = context.document.body.search(edit.find, {
                 matchCase: false,
               });
               ranges.load("items");
+              // Intentional per-edit sync: each edit is applied and committed
+              // independently so one bad edit (find text too long, or no
+              // longer present) cannot abort the rest of the batch.
+              // eslint-disable-next-line office-addins/no-context-sync-in-loop
               await context.sync();
               // A search that matched nothing changed the document in no way,
               // so it must count as skipped — incrementing `applied`
               // unconditionally reported "Applied 5 action(s)" for a document
               // that was never touched.
               if (ranges.items.length === 0) {
-                skipped++;
+                notFound++;
                 continue;
               }
               if (ranges.items.length > 1) {
@@ -925,13 +978,14 @@ ${data.text}`;
                 const inserted = r.insertText(String(edit.replace), "Replace");
                 if (markRed) inserted.font.color = "#FF0000";
               });
+              // eslint-disable-next-line office-addins/no-context-sync-in-loop
               await context.sync();
               applied++;
             } catch {
-              skipped++;
+              notFound++;
             }
           }
-          return { applied, skipped };
+          return { applied, notFound, tooShort, tooLong };
         });
       } else {
         // Plain text: replace the pinned selection if its bookmark is still in
@@ -1010,12 +1064,33 @@ ${data.text}`;
           : editStats
             ? editStats.applied
             : 1;
-      const skippedNote =
-        editStats && editStats.skipped > 0
-          ? ` (${editStats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
-          : "";
-      addMsg("bot", `Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
-      showToast(`Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
+      // Report each reason separately. Lumping them into one "skipped —
+      // not found or too long" line hid the case that actually matters: a
+      // correction we REFUSED to make, which the user now has to make by hand.
+      const notes = [];
+      if (editStats && editStats.notFound > 0)
+        notes.push(`${editStats.notFound} không còn tìm thấy trong tài liệu`);
+      if (editStats && editStats.tooLong.length > 0)
+        notes.push(`${editStats.tooLong.length} quá dài để tìm kiếm`);
+      const summary =
+        `Đã áp dụng ${n} thay đổi.` +
+        (notes.length ? ` (${notes.join("; ")})` : "");
+      addMsg("bot", summary, { tone: "ok" });
+      showToast(summary, { tone: "ok" });
+
+      if (editStats && editStats.tooShort.length > 0) {
+        const list = editStats.tooShort
+          .map((e) => `“${e.find}” → “${e.replace}”`)
+          .join(", ");
+        const warn =
+          `⚠ Bỏ qua ${editStats.tooShort.length} sửa vì chuỗi tìm ngắn hơn ${MIN_SEARCH_LEN} ký tự: ${list}. ` +
+          `Chuỗi ngắn khớp cả bên trong từ khác (ví dụ “va” nằm trong “van”, “vay”), nên phải sửa tay.`;
+        addMsg("bot", warn, { tone: "warn" });
+        showToast(`${editStats.tooShort.length} sửa quá ngắn — phải sửa tay.`, {
+          tone: "warn",
+          timeout: 6000,
+        });
+      }
       lastProposal = null;
       preview.innerHTML = "";
       applyBtn.hidden = true;

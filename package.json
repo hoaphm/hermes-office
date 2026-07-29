@@ -23,14 +23,21 @@
     "config.example.json",
     "word/manifest.xml",
     "excel/manifest.xml",
-    "Caddyfile.example"
+    "Caddyfile.example",
+    "eslint.config.mjs"
   ],
   "scripts": {
+    "install:all": "npm install && npm install --prefix word && npm install --prefix excel",
     "build": "npm run build --prefix word && npm run build --prefix excel",
     "setup": "node scripts/setup.mjs",
     "serve": "node scripts/serve.mjs",
     "stop": "node scripts/stop.mjs",
     "test": "node --test",
-    "lint": "npm run lint --prefix word && npm run lint --prefix excel"
+    "lint": "npm run lint:shared && npm run lint --prefix word && npm run lint --prefix excel",
+    "lint:shared": "eslint shared scripts",
+    "lint:fix": "eslint --fix shared scripts && npm run lint:fix --prefix word && npm run lint:fix --prefix excel"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5"
   }
 }

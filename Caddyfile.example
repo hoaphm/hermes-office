@@ -1,28 +1,52 @@
-# Standalone local HTTPS server for Hermes Office add-ins (without Hermes backend).
-# Copy this file to "Caddyfile" and run with:  caddy run
+# Standalone local HTTPS server for the Hermes Office add-ins.
 #
-# Serves built bundles over HTTPS + config.json for provider credentials.
-# No reverse proxy needed — add-ins call providers directly from their WebView.
+# scripts/setup.mjs copies this file to "Caddyfile" (git-ignored) when one
+# does not exist yet. Start it with:  npm run serve
+#
+# Serves the built bundles plus config.json. There is no reverse proxy: each
+# add-in calls the configured provider directly from its WebView.
+#
+# SECURITY — deliberately NO Access-Control-Allow-Origin header here.
+# The task panes are served from this same origin
+# (https://localhost:8643/word/taskpane.html), so their fetch("/config.json")
+# is same-origin and needs no CORS at all. A wildcard would let ANY page open
+# in ANY browser on this machine read config.json — including the plaintext
+# apiKey. Do not add one.
 
-localhost:8643 {
-    # Serve Word bundle.
+https://localhost:8643 {
+    tls internal
+
+    # Serve the Word bundle.
     handle_path /word/* {
-        root * word/dist
+        root * ./word/dist
         file_server
     }
 
-    # Serve Excel bundle.
+    # Serve the Excel bundle.
     handle_path /excel/* {
-        root * excel/dist
+        root * ./excel/dist
         file_server
     }
 
-    # Serve provider config.
+    # Serve provider config to the task panes (same-origin).
     handle /config.json {
         root * .
         file_server
     }
 
-    # Redirect everything else to Word taskpane.
+    # Provider proxy. scripts/setup.mjs rewrites everything between these two
+    # markers; edit it there, not here, or the next `npm run setup` wipes it.
+    #
+    # When enabled, config.json's baseUrl points at https://localhost:8643/v1
+    # and this block forwards to the real provider. That makes the provider
+    # call SAME-ORIGIN, so the browser never sends a CORS preflight — which is
+    # what most self-hosted routers fail. Caddy only forwards; it injects no
+    # credentials, so the add-in's own Authorization header is still what
+    # authenticates, and a caller without a key still gets the provider's 401.
+    # >>> hermes-proxy >>>
+    # (disabled — add-ins call the provider directly)
+    # <<< hermes-proxy <<<
+
+    # Bare root is a convenience redirect to the Word task pane.
     redir / https://localhost:8643/word/taskpane.html
 }

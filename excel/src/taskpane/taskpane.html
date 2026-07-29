@@ -90,7 +90,11 @@
 
         <div id="preview" role="region" aria-label="Proposed changes"></div>
 
-        <label id="highlightWrap" class="ds-toggle-row" data-show="false" hidden>
+        <!-- Visibility is driven purely by the `hidden` attribute from
+             taskpane.js. Do NOT re-add data-show="false": the CSS rule for it
+             outranks .ds-toggle-row's display:flex, so the toggle stayed
+             invisible even after JS cleared `hidden`. -->
+        <label id="highlightWrap" class="ds-toggle-row" hidden>
           <input type="checkbox" id="highlight" checked />
           <span>Tô nền ô đã sửa</span>
         </label>

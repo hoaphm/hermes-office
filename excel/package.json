@@ -1,6 +1,6 @@
 {
   "name": "hermes-excel",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "Hermes agent inside Excel — task-pane chat + =HERMES.* custom functions.",
   "author": "Tonbi",
   "engines": {

@@ -10,6 +10,8 @@ import {
   hash,
   resolveRange,
   chartType,
+  parseEditsReply,
+  partitionEdits,
 } from "./parsers.js";
 
 test("columnIndexToLetters / columnLettersToIndex round-trip", () => {
@@ -142,4 +144,135 @@ test("chartType: maps known aliases and defaults to ColumnClustered", () => {
 test("hash: deterministic and sensitive to input", () => {
   assert.equal(hash("abc"), hash("abc"));
   assert.notEqual(hash("abc"), hash("abd"));
+});
+
+// ---------------------------------------------------------------------------
+// parseEditsReply — one pass over a full-document reply, giving the task pane
+// everything it needs: the edits, whether the model actually complied with the
+// JSON contract, and the prose to show in the chat bubble.
+//
+// Word used to print the raw reply into the chat, so a compliant model that
+// answered `{"edits":[]}` showed the user literal JSON instead of "no errors".
+
+test("parseEditsReply: empty edits is structured compliance, not prose", () => {
+  const r = parseEditsReply('{"edits":[]}');
+  assert.equal(r.structured, true);
+  assert.deepEqual(r.edits, []);
+  assert.equal(r.prose, "");
+});
+
+test("parseEditsReply: edits are returned and stripped from the prose", () => {
+  const r = parseEditsReply('Đây là các lỗi:\n{"edits":[{"find":"hoc","replace":"học"}]}');
+  assert.equal(r.structured, true);
+  assert.deepEqual(r.edits, [{ find: "hoc", replace: "học" }]);
+  assert.equal(r.prose, "Đây là các lỗi:");
+});
+
+test("parseEditsReply: a fenced block is stripped from the prose too", () => {
+  const r = parseEditsReply('Xong.\n```json\n{"edits":[{"find":"a","replace":"b"}]}\n```');
+  assert.equal(r.structured, true);
+  assert.equal(r.edits.length, 1);
+  assert.equal(r.prose, "Xong.");
+});
+
+test("parseEditsReply: a prose-only reply is NOT structured", () => {
+  const r = parseEditsReply("Tài liệu của bạn có vài chỗ nên viết lại cho gọn hơn.");
+  assert.equal(r.structured, false);
+  assert.deepEqual(r.edits, []);
+  assert.equal(r.prose, "Tài liệu của bạn có vài chỗ nên viết lại cho gọn hơn.");
+});
+
+test("parseEdits: identical find/replace pairs are deduplicated", () => {
+  // Observed from a real model: the same word listed once per occurrence.
+  // Each edit replaces ALL matches, so the duplicate found nothing and was
+  // reported as "1 skipped" on a run where nothing actually went wrong.
+  const edits = parseEdits(
+    '{"edits":[{"find":"hoc","replace":"học"},{"find":"dậy","replace":"dạy"},{"find":"hoc","replace":"học"}]}'
+  );
+  assert.deepEqual(edits, [
+    { find: "hoc", replace: "học" },
+    { find: "dậy", replace: "dạy" },
+  ]);
+});
+
+test("parseEdits: same find with a DIFFERENT replace is kept (not a duplicate)", () => {
+  const edits = parseEdits('{"edits":[{"find":"a","replace":"b"},{"find":"a","replace":"c"}]}');
+  assert.equal(edits.length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// partitionEdits — decide which find strings are safe to hand to
+// Word's body.search().
+//
+// search() has no matchWholeWord here, so it matches SUBSTRINGS and Apply
+// replaces every hit. A 2-character find like "va" (-> "và") therefore also
+// rewrites the inside of "van", "vay", "vang", "vai" — all real Vietnamese
+// syllables. Short finds are refused rather than applied blindly.
+//
+// The floor is 3, not higher: "hoc" -> "học" is a 3-character correction and
+// one of the most common Vietnamese typos there is, so raising the bar would
+// throw away more than it protects.
+
+test("partitionEdits: keeps finds at or above the minimum length", () => {
+  const { applicable, tooShort } = partitionEdits([
+    { find: "hoc", replace: "học" },
+    { find: "choi", replace: "chơi" },
+  ]);
+  assert.equal(applicable.length, 2);
+  assert.equal(tooShort.length, 0);
+});
+
+test("partitionEdits: refuses 1- and 2-character finds", () => {
+  const { applicable, tooShort } = partitionEdits([
+    { find: "va", replace: "và" },
+    { find: "o", replace: "ở" },
+    { find: "hoc", replace: "học" },
+  ]);
+  assert.deepEqual(
+    applicable.map((e) => e.find),
+    ["hoc"]
+  );
+  assert.deepEqual(
+    tooShort.map((e) => e.find),
+    ["va", "o"]
+  );
+});
+
+test("partitionEdits: still refuses finds over the search-length ceiling", () => {
+  const { applicable, tooLong } = partitionEdits([
+    { find: "x".repeat(256), replace: "y" },
+    { find: "hoc", replace: "học" },
+  ]);
+  assert.equal(applicable.length, 1);
+  assert.equal(tooLong.length, 1);
+});
+
+test("partitionEdits: length is counted in characters, not UTF-16 units", () => {
+  // "đã" is 2 characters; a naive .length on some normalisations would
+  // over-count and wrongly let it through.
+  const { tooShort } = partitionEdits([{ find: "đã", replace: "đá" }]);
+  assert.equal(tooShort.length, 1);
+});
+
+test("partitionEdits: leading/trailing spaces do not buy length", () => {
+  // " va " is 4 characters but only 2 of signal; padding must not be a way
+  // to sneak a dangerous find past the floor.
+  const { tooShort } = partitionEdits([{ find: " va ", replace: " và " }]);
+  assert.equal(tooShort.length, 1);
+});
+
+test("partitionEdits: empty input yields empty buckets", () => {
+  const r = partitionEdits([]);
+  assert.deepEqual(r.applicable, []);
+  assert.deepEqual(r.tooShort, []);
+  assert.deepEqual(r.tooLong, []);
+});
+
+test("parseEdits: dedupe key cannot collide across the find/replace boundary", () => {
+  // With a space separator both of these key to "a b c", so the second edit
+  // would be dropped as a false duplicate. They are different instructions.
+  const edits = parseEdits(
+    '{"edits":[{"find":"a b","replace":"c"},{"find":"a","replace":"b c"}]}'
+  );
+  assert.equal(edits.length, 2);
 });
