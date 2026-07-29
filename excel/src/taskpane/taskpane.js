@@ -7,6 +7,8 @@ import { signature, resolveRange, chartType, extractJsonObject } from "../../../
 // so both add-ins get the same design system + a11y treatment.
 import {
   appendMessage,
+  appendTypingIndicator,
+  removeTypingIndicator,
   setStatus as setStatusUi,
   setBusy as setBusyUi,
   showToast,
@@ -55,6 +57,10 @@ Office.onReady(() => {
   const newChatBtn = document.getElementById("newchat");
   const promptEl = document.getElementById("prompt");
   const applyBtn = document.getElementById("apply");
+  const emptyEl = document.getElementById("empty");
+  // Typing indicator shown while Hermes is thinking — created on send,
+  // removed when the reply lands (or on error).
+  let typingEl = null;
 
   askBtn.addEventListener("click", ask);
   newChatBtn.addEventListener("click", newChat);
@@ -107,6 +113,20 @@ Office.onReady(() => {
   }
   refreshMeta(null);
   window.__hermesRefreshContext = refreshMeta;
+
+  // First message of a chat replaces the empty state; newChat() brings
+  // it back. Exposed so ask()/newChat() (defined below) can toggle it.
+  window.__hermesSetEmptyHidden = (hidden) => {
+    if (emptyEl) emptyEl.classList.toggle("is-hidden", hidden);
+  };
+  window.__hermesTyping = (show) => {
+    if (show) {
+      typingEl = appendTypingIndicator(document.getElementById("log"));
+    } else {
+      removeTypingIndicator(typingEl);
+      typingEl = null;
+    }
+  };
 });
 
 // ---- conversation ----------------------------------------------------------
@@ -131,7 +151,9 @@ async function ask() {
     history.push({ role: "user", content });
 
     setBusy(true, "Hermes đang suy nghĩ…");
+    if (typeof window.__hermesTyping === "function") window.__hermesTyping(true);
     const raw = await askHermes(history);
+    if (typeof window.__hermesTyping === "function") window.__hermesTyping(false);
     history.push({ role: "assistant", content: raw });
     // Trim oldest turns, always preserving the system message at index 0.
     if (history.length > MAX_HISTORY_MESSAGES + 1) {
@@ -151,6 +173,7 @@ async function ask() {
         : "Sẵn sàng."
     );
   } catch (e) {
+    if (typeof window.__hermesTyping === "function") window.__hermesTyping(false);
     addBubble("bot", "⚠ " + e.message, "err");
     setStatus("Lỗi.", "err");
   } finally {
@@ -162,8 +185,10 @@ function newChat() {
   history.length = 1; // keep system message
   lastSig = null;
   proposalSheetName = null;
+  if (typeof window.__hermesTyping === "function") window.__hermesTyping(false);
   clearPending();
   document.getElementById("log").innerHTML = "";
+  if (typeof window.__hermesSetEmptyHidden === "function") window.__hermesSetEmptyHidden(false);
   setStatus("Cuộc trò chuyện mới. Mở sheet dữ liệu và đặt câu hỏi.");
   if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
 }
@@ -324,8 +349,8 @@ function renderActions(actions) {
   });
   // renderProposalCard renders no CTA of its own — the single Apply button is
   // the footer-level #apply, which we show only when there is a card.
-  document.getElementById("apply").style.display = card ? "block" : "none";
-  document.getElementById("highlightWrap").style.display = card ? "flex" : "none";
+  document.getElementById("apply").hidden = !card;
+  document.getElementById("highlightWrap").hidden = !card;
 }
 
 // Range.values evaluates any string starting with =, +, -, or @ as a formula,
@@ -534,8 +559,8 @@ function tableName(n) {
 function clearPending() {
   pendingActions = [];
   document.getElementById("preview").innerHTML = "";
-  document.getElementById("apply").style.display = "none";
-  document.getElementById("highlightWrap").style.display = "none";
+  document.getElementById("apply").hidden = true;
+  document.getElementById("highlightWrap").hidden = true;
 }
 
 function setBusy(b, msg) {
@@ -545,6 +570,8 @@ function setBusy(b, msg) {
 }
 
 function addBubble(who, text, tone) {
+  // The first message replaces the empty state for this chat.
+  if (typeof window.__hermesSetEmptyHidden === "function") window.__hermesSetEmptyHidden(true);
   appendMessage(document.getElementById("log"), who, text, { tone });
 }
 

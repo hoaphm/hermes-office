@@ -11,6 +11,8 @@ import {
   parseWordEdits,
   parseWordTableChanges,
   appendMessage,
+  appendTypingIndicator,
+  removeTypingIndicator,
   setStatus as setStatusUi,
   setBusy as setBusyUi,
   showToast,
@@ -44,6 +46,10 @@ Office.onReady().then(() => {
   const statusEl = document.getElementById("status");
   const statusRowEl = document.getElementById("statusRow");
   const preview = document.getElementById("preview");
+  const emptyEl = document.getElementById("empty");
+  // Typing indicator shown while Hermes is thinking — created on send,
+  // removed when the reply lands (or on error).
+  let typingEl = null;
   // Context chips render into their own row below the status bar — falling
   // back to the header keeps older templates (chips inline) working.
   const contextHost =
@@ -104,7 +110,8 @@ Office.onReady().then(() => {
         state: "warn",
       });
     }
-    if (!chips.length) chips.push({ label: "Sẵn sàng", value: "" });
+    if (!chips.length)
+      chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
     mountContextBar(contextHost, chips);
   }
   refreshContextBar();
@@ -112,6 +119,9 @@ Office.onReady().then(() => {
   // opts is forwarded (not dropped) so { tone: "err" } / { tone: "ok" } from
   // the call sites below actually reaches the bubble's styling.
   function addMsg(role, text, opts) {
+    // The first message replaces the empty state for this chat;
+    // newChat() brings it back.
+    if (emptyEl) emptyEl.classList.add("is-hidden");
     return appendMessage(log, role, text, opts);
   }
 
@@ -612,10 +622,10 @@ ${data.text}`;
     addMsg("user", userText);
     input.value = "";
     setBusyUi(askBtn, true);
-    setStatus("Reading document…", "busy");
+    setStatus("Đang đọc tài liệu…", "busy");
     lastProposal = null;
-    applyBtn.style.display = "none";
-    markRedWrap.style.display = "none";
+    applyBtn.hidden = true;
+    markRedWrap.hidden = true;
     preview.innerHTML = "";
     refreshContextBar({ snapshot: "Đang đọc tài liệu…" });
 
@@ -644,11 +654,11 @@ ${data.text}`;
 
       const statusText =
         selectionData.type === "fulldoc"
-          ? `${selectionData.text.length} chars from full document`
+          ? `${selectionData.text.length} ký tự từ toàn văn bản`
           : selectionData.text
-            ? `${selectionData.text.length} chars selected`
-            : "Table selected";
-      setStatus(statusText + " — Hermes is thinking…");
+            ? `${selectionData.text.length} ký tự được chọn`
+            : "Đã chọn bảng";
+      setStatus(statusText);
 
       const sysPrompt = buildSystemPrompt(displayData);
       const payload = [
@@ -657,8 +667,11 @@ ${data.text}`;
         { role: "user", content: userText },
       ];
 
-      setStatus("Hermes is thinking…");
+      setStatus("Hermes đang suy nghĩ…", "busy");
+      typingEl = appendTypingIndicator(log);
       const reply = await askHermes(payload);
+      removeTypingIndicator(typingEl);
+      typingEl = null;
       addMsg("bot", reply);
 
       if (selectionData.type === "table") {
@@ -697,8 +710,8 @@ ${data.text}`;
               new: c.value,
             })),
           });
-          applyBtn.style.display = "block";
-          markRedWrap.style.display = "flex";
+          applyBtn.hidden = false;
+          markRedWrap.hidden = false;
         }
       } else if (selectionData.type === "text") {
         // The system prompt asks for bare text, but unwrap a stray fence
@@ -711,8 +724,8 @@ ${data.text}`;
             { type: "replace", find: capturedSelectionText, replace: passage },
           ],
         });
-        applyBtn.style.display = "block";
-        markRedWrap.style.display = "flex";
+        applyBtn.hidden = false;
+        markRedWrap.hidden = false;
       } else if (selectionData.type === "fulldoc") {
         // Inline edits only (fix spelling etc.) — only the wrong spots change.
         // No fulldoc-full fallback: raw prose replies (e.g. a model listing
@@ -729,14 +742,14 @@ ${data.text}`;
               replace: e.replace,
             })),
           });
-          applyBtn.style.display = "block";
-          markRedWrap.style.display = "flex";
+          applyBtn.hidden = false;
+          markRedWrap.hidden = false;
         } else {
           // Plain answer / review — nothing to apply.
           lastProposal = null;
           preview.innerHTML = `<div class="ds-card-action"><div class="label">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div></div>`;
-          applyBtn.style.display = "none";
-          markRedWrap.style.display = "none";
+          applyBtn.hidden = true;
+          markRedWrap.hidden = true;
         }
       }
 
@@ -748,11 +761,13 @@ ${data.text}`;
       if (messages.length > MAX_HISTORY_MESSAGES) {
         messages = messages.slice(-MAX_HISTORY_MESSAGES);
       }
-      setStatus("Ready.");
+      setStatus("Sẵn sàng.");
     } catch (err) {
+      removeTypingIndicator(typingEl);
+      typingEl = null;
       const errMsg = err.message || String(err);
       addMsg("bot", errMsg, { tone: "err" });
-      setStatus("Error.", "err");
+      setStatus("Lỗi.", "err");
     } finally {
       busy = false;
       setBusyUi(askBtn, false);
@@ -770,7 +785,6 @@ ${data.text}`;
     return { row, col };
   }
 
-  // Word's Range.search() rejects find strings longer than 255 characters.
   // Word's Range.search() rejects find strings longer than 255 characters.
   // MAX_SEARCH_LEN is declared at the top level of this module.
 
@@ -792,7 +806,7 @@ ${data.text}`;
 
     busy = true;
     setBusyUi(applyBtn, true);
-    setStatus("Applying…", "busy");
+    setStatus("Đang áp dụng…", "busy");
     let editStats = null;
     try {
       if (lastProposal.type === "table") {
@@ -966,16 +980,16 @@ ${data.text}`;
         editStats && editStats.skipped > 0
           ? ` (${editStats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
           : "";
-      addMsg("bot", `Applied ${n} action(s).${skippedNote}`, { tone: "ok" });
-      showToast(`Applied ${n} action(s).${skippedNote}`, { tone: "ok" });
+      addMsg("bot", `Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
+      showToast(`Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       lastProposal = null;
       preview.innerHTML = "";
-      applyBtn.style.display = "none";
-      markRedWrap.style.display = "none";
-      setStatus("Ready.");
+      applyBtn.hidden = true;
+      markRedWrap.hidden = true;
+      setStatus("Sẵn sàng.");
       refreshContextBar();
     } catch (err) {
-      const errText = "⚠ Apply failed: " + (err.message || err);
+      const errText = "⚠ Áp dụng thất bại: " + (err.message || err);
       setStatus(errText, "err");
       addMsg("bot", errText, { tone: "err" });
       showToast(errText, { tone: "err", timeout: 6000 });
@@ -999,8 +1013,8 @@ ${data.text}`;
     clearSelectionBookmark();
     log.innerHTML = "";
     preview.innerHTML = "";
-    applyBtn.style.display = "none";
-    markRedWrap.style.display = "none";
+    applyBtn.hidden = true;
+    markRedWrap.hidden = true;
     // Reset to checked so a new chat always starts from the predictable
     // default rather than carrying over whatever the user last toggled.
     const markRedEl = document.getElementById("markRed");

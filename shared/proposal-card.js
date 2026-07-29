@@ -50,6 +50,48 @@ export function appendMessage(log, role, text, { tone } = {}) {
   return wrap;
 }
 
+// ---- Typing indicator ------------------------------------------------------
+
+/**
+ * Append a "Hermes is thinking" indicator to the log. It is a bot-side
+ * message with three pulsing dots (styled by .ds-typing in design-system.css).
+ * The caller removes it with removeTypingIndicator() once the reply lands.
+ *
+ * @param {HTMLElement} log the scrollable log element
+ * @returns {HTMLElement} the appended .ds-msg element
+ */
+export function appendTypingIndicator(log) {
+  const wrap = document.createElement("div");
+  wrap.className = "ds-msg ds-typing";
+  wrap.dataset.role = "bot";
+  wrap.setAttribute("aria-label", "Hermes đang suy nghĩ");
+
+  const bubble = document.createElement("div");
+  bubble.className = "ds-bubble";
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("span");
+    dot.className = "ds-dot";
+    dot.setAttribute("aria-hidden", "true");
+    bubble.appendChild(dot);
+  }
+  wrap.appendChild(bubble);
+
+  log.appendChild(wrap);
+  const scroller = log.closest(".ds-content") || log;
+  scroller.scrollTop = scroller.scrollHeight;
+  return wrap;
+}
+
+/**
+ * Remove a typing indicator previously returned by appendTypingIndicator().
+ * Safe to call with null / detached elements.
+ *
+ * @param {HTMLElement|null} el
+ */
+export function removeTypingIndicator(el) {
+  if (el && el.parentElement) el.parentElement.removeChild(el);
+}
+
 // ---- Context bar -----------------------------------------------------------
 
 /**

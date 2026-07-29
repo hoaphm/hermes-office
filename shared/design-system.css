@@ -6,16 +6,19 @@
  * back to the neutral fg/bg pair, so unthemed pages stay pure monochrome.
  *
  * Voice: Linear / Stripe Press / Vercel marketing — 2px borders, 14px radius,
- * weight contrast (500 body / 700 label), uppercase mini-labels with wide
- * tracking. No shadows, no gradients; color only on the accent tokens.
+ * weight contrast (500 body / 700 label), mini-labels with wide tracking.
+ * No shadows, no gradients; color only on the accent tokens.
  *
  * Spacing follows a 4px grid. Type is Inter with SF fallback (Office hosts
  * never need a font CDN — the system stack is good enough).
  */
 :root {
-  /* Pure B/W ramp — every other color resolves through these. */
+  /* B/W ramp — every other color resolves through these. fg is a warm
+   * off-black rather than #000 (pure black reads harsh on white at 2px
+   * border weights); fg-2 is a step softer for secondary text. */
   --bg: #ffffff;
-  --fg: #000000;
+  --fg: #111112;
+  --fg-2: #3f3f42;
   --muted: #707070;
   --line: #d4d4d4;
   --line-2: #ebebeb;
@@ -64,8 +67,12 @@
   --bw-2: 1.5px;
   --bw-3: 2px;
 
-  --easing: cubic-bezier(0.33, 0, 0.67, 1);
-  --t-fast: 120ms;
+  /* Motion: a decelerating curve (fast out, soft land) gives every
+   * transition a springy, weighty feel instead of the mechanical
+   * symmetric ease-in-out. 150ms is the shortest duration that still
+   * reads as "animated" rather than "instant". */
+  --easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 150ms;
 }
 
 /* Per-host brand accent. Word = Office blue, Excel = Office green.
@@ -122,7 +129,8 @@ body.theme-excel.dark,
  * Two CSS vars change; everything else cascades. */
 .dark {
   --bg: #0a0a0a;
-  --fg: #ffffff;
+  --fg: #f5f5f4;
+  --fg-2: #c9c9cc;
   --muted: #8a8a8a;
   --line: #2a2a2a;
   --line-2: #1a1a1a;
@@ -134,7 +142,8 @@ body.theme-excel.dark,
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     --bg: #0a0a0a;
-    --fg: #ffffff;
+    --fg: #f5f5f4;
+    --fg-2: #c9c9cc;
     --muted: #8a8a8a;
     --line: #2a2a2a;
     --line-2: #1a1a1a;
@@ -215,12 +224,15 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* Brand mark mirrors the shipped logo asset (white H on a black block),
+ * so it rides the invert pair — NOT the per-host accent. Word and Excel
+ * stay distinguishable by the accent used on CTAs, dots, and pins. */
 .ds-brand .mark {
   width: 22px;
   height: 22px;
   border-radius: var(--r-1);
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--invert);
+  color: var(--invert-fg);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -432,14 +444,21 @@ body {
   gap: var(--sp-3);
 }
 
-.ds-log::-webkit-scrollbar {
+/* Scrollbars live on .ds-content — that is the element that actually
+ * scrolls (.ds-log has overflow: visible inside it). The thumb uses
+ * --line, not --fg: a full-contrast thumb on a 5px rail reads as a
+ * smudge in dark mode. */
+.ds-content::-webkit-scrollbar {
   width: 5px;
 }
-.ds-log::-webkit-scrollbar-thumb {
-  background: var(--fg);
+.ds-content::-webkit-scrollbar-thumb {
+  background: var(--line);
   border-radius: 3px;
 }
-.ds-log::-webkit-scrollbar-track {
+.ds-content::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+.ds-content::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -465,6 +484,26 @@ body {
   font-weight: 500;
   word-wrap: break-word;
   white-space: pre-wrap;
+  /* Keep the last line from orphaning a single word; unsupported hosts
+   * ignore both declarations. */
+  text-wrap: pretty;
+}
+
+/* Messages land with a short rise instead of popping in. The animation
+ * runs once per element (bubbles are appended, never re-rendered). */
+.ds-msg {
+  animation: ds-rise 220ms var(--easing) both;
+}
+
+@keyframes ds-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .ds-msg[data-role="user"] .ds-bubble {
@@ -485,10 +524,12 @@ body {
   border-style: dashed;
 }
 
+/* Tone prefixes are Vietnamese — the pane UI is vi-VN; English
+ * "WARN/ERROR/DONE" tags read as leftover debug labels. */
 .ds-msg[data-tone="warn"] .ds-bubble::before {
-  content: "WARN · ";
+  content: "Cảnh báo · ";
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
 }
 
 .ds-msg[data-tone="err"] .ds-bubble {
@@ -497,9 +538,9 @@ body {
 }
 
 .ds-msg[data-tone="err"] .ds-bubble::before {
-  content: "ERROR · ";
+  content: "Lỗi · ";
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
 }
 
 .ds-msg[data-tone="ok"] .ds-bubble {
@@ -508,19 +549,21 @@ body {
 }
 
 .ds-msg[data-tone="ok"] .ds-bubble::before {
-  content: "DONE · ";
+  content: "Xong · ";
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
 }
 
+/* Timestamps/counts — tabular so digits don't jitter; sentence case
+ * instead of all-caps (the pane is 320px wide; caps waste it). */
 .ds-meta {
   display: block;
   font-size: var(--fs-100);
   color: var(--muted);
   margin-top: 4px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 .ds-msg[data-role="user"] .ds-meta {
@@ -535,6 +578,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The card is the security boundary (nothing is written until Apply),
+   * so its arrival should feel deliberate, not instant. */
+  animation: ds-rise 260ms var(--easing) both;
 }
 
 .ds-card-head {
@@ -615,6 +661,8 @@ body {
   padding: 5px 8px;
   border-radius: var(--r-1);
   word-break: break-word;
+  white-space: pre-wrap;
+  text-wrap: pretty;
 }
 
 .ds-diff-old {
@@ -740,6 +788,11 @@ body {
   color: var(--bg);
 }
 
+.ds-icon-btn:focus-visible {
+  outline: var(--bw-2) solid var(--fg);
+  outline-offset: 2px;
+}
+
 .ds-icon-btn svg {
   width: 14px;
   height: 14px;
@@ -809,6 +862,15 @@ body {
   transform: translateY(-1px);
 }
 
+.ds-send:active:not([aria-disabled="true"]) {
+  transform: translateY(1px);
+}
+
+.ds-send:focus-visible {
+  outline: var(--bw-2) solid var(--fg);
+  outline-offset: 2px;
+}
+
 .ds-send[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.35;
@@ -856,6 +918,134 @@ body {
 
 .ds-toggle-row[data-show="false"] {
   display: none;
+}
+
+/* ---- Footer-level Apply CTA ---------------------------------------------
+ * Owns its spacing so the taskpane HTML carries no inline styles. The
+ * accent fill is the single loudest element in the pane, and it only
+ * exists while a proposal is waiting for approval — hidden otherwise. */
+.ds-apply {
+  margin: 0 var(--sp-4) var(--sp-3);
+  width: calc(100% - var(--sp-4) * 2);
+  height: 42px;
+  padding: 0 var(--sp-4);
+}
+
+/* ---- Empty state ----------------------------------------------------------
+ * First thing the user sees when the pane opens; hidden as soon as the
+ * first message lands (taskpane JS toggles .is-hidden). The icon is a
+ * 2px-stroke pen nib, matching the icon language of the header/send icons. */
+.ds-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 44px 28px 32px;
+  animation: ds-rise 300ms var(--easing) both;
+}
+
+.ds-empty.is-hidden {
+  display: none;
+}
+
+.ds-empty-icon {
+  width: 44px;
+  height: 44px;
+  color: var(--muted);
+}
+
+.ds-empty-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.ds-empty-title {
+  font-size: var(--fs-500);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+
+.ds-empty-body {
+  font-size: var(--fs-200);
+  line-height: var(--lh-normal);
+  color: var(--muted);
+  font-weight: 500;
+  text-wrap: pretty;
+}
+
+.ds-empty-hint {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.ds-empty-hint li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-200);
+  font-weight: 500;
+  color: var(--fg);
+  text-align: left;
+  line-height: var(--lh-normal);
+}
+
+.ds-empty-hint li::before {
+  content: "→";
+  color: var(--accent);
+  font-weight: 700;
+  flex: none;
+}
+
+/* ---- Typing indicator -------------------------------------------------------
+ * Rendered as a bot message while Hermes is thinking. The three dots are
+ * transform/opacity-only (GPU-friendly) and stagger by 140ms each. */
+.ds-typing .ds-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 13px 15px;
+}
+
+.ds-typing .ds-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: ds-typing-pulse 1.1s var(--easing) infinite;
+}
+
+.ds-typing .ds-dot:nth-child(2) {
+  animation-delay: 140ms;
+}
+
+.ds-typing .ds-dot:nth-child(3) {
+  animation-delay: 280ms;
+}
+
+@keyframes ds-typing-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-typing .ds-dot {
+    animation: none;
+  }
 }
 
 /* ---- Toast (fixed bottom-center) --------------------------------------- */
@@ -945,4 +1135,13 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---- Utilities ------------------------------------------------------------ */
+/* [hidden] is display:none by UA default, but any rule that sets display
+ * on the element (e.g. .ds-toggle-row's flex) wins over the UA style.
+ * This keeps the attribute authoritative everywhere, so the taskpanes
+ * can toggle visibility with el.hidden instead of inline styles. */
+[hidden] {
+  display: none !important;
 }
