@@ -92,6 +92,8 @@ module.exports = async (env, options) => {
               }
             },
           },
+          // Production config template — copy as config.json for direct provider calls.
+          ...(dev ? [] : [{ from: "../config.example.json", to: "config.json" }]),
         ],
       }),
     ],

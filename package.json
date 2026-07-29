@@ -3,12 +3,33 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/tonbistudio/hermes-office.git"
   },
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "hermes-office-setup": "scripts/setup.mjs",
+    "hermes-office-serve": "scripts/serve.mjs"
+  },
+  "files": [
+    "scripts/",
+    "shared/",
+    "word/src/shared/hermes.js",
+    "excel/src/shared/hermes.js",
+    "config.example.json",
+    "word/manifest.xml",
+    "excel/manifest.xml",
+    "Caddyfile.example"
+  ],
   "scripts": {
     "build": "npm run build --prefix word && npm run build --prefix excel",
+    "setup": "node scripts/setup.mjs",
+    "serve": "node scripts/serve.mjs",
+    "stop": "node scripts/stop.mjs",
     "test": "node --test",
     "lint": "npm run lint --prefix word && npm run lint --prefix excel"
   }

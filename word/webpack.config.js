@@ -83,6 +83,8 @@ module.exports = async (env, options) => {
               return content.toString().replace(urlDevPattern, urlProd);
             },
           },
+          // Production config template — replace with user values before serving.
+          ...(dev ? [] : [{ from: "../config.example.json", to: "config.json" }]),
         ],
       }),
     ],

@@ -1,12 +1,16 @@
 # Hermes for Office
 
-Put your own [Hermes](https://github.com/NousResearch/hermes-agent) agent **inside Microsoft Office** — your models, your skills, your approval gate. Not Copilot.
+Microsoft Word + Excel add-ins that call any OpenAI-compatible LLM API directly. No Hermes server, account, or backend required.
+
+Supported providers include OpenAI, OpenRouter, Azure OpenAI, and any provider exposing `/v1/chat/completions`.
 
 ```
-Office add-in ──HTTPS──▶ Caddy (:8643, TLS + injects API key) ──▶ Hermes API Server (:8642) ──▶ your agent
+Office add-in ──HTTPS──▶ Caddy (:8643, local static server) ──HTTPS──▶ provider /v1/chat/completions
 ```
 
-The add-in never holds the API key. It calls `https://localhost:8643/v1/chat/completions`; Caddy terminates TLS (Office add-ins must be served over HTTPS) and injects the `Authorization` header before forwarding to the Hermes API Server. This keeps the secret out of the add-in bundle and out of git.
+The add-in reads provider config from local `/config.json`, then calls provider directly. Caddy only serves bundles and config; it does not proxy or inject API keys.
+
+`config.json` is git-ignored. Never share it or commit it.
 
 ## Apps
 
@@ -15,61 +19,93 @@ The add-in never holds the API key. It calls `https://localhost:8643/v1/chat/com
 | Word — task-pane chat + AI document editing | ✅ available | [`word/`](./word) |
 | Excel — task-pane chat + `=HERMES.*` custom functions | ✅ available | [`excel/`](./excel) |
 
-Each app is a self-contained Office.js add-in with its own `package.json`, webpack build, and manifest. They share the same backend (below) and the same helper code in [`shared/`](./shared).
+Each app is a self-contained Office.js add-in with its own `package.json`, webpack build, and manifest. They share provider client code in [`shared/`](./shared).
 
-## Shared backend (set up once, used by every app)
+## Install on Windows or macOS
 
-Hermes already exposes the **full agent** (tools, memory, skills) as an OpenAI-compatible HTTP endpoint — the **API Server** (not `hermes proxy`, which is model-only). Each add-in calls `/v1/chat/completions`; a one-line Caddy proxy adds HTTPS and injects the bearer token.
+Requirements: Microsoft 365 desktop, Node.js 18+, and Caddy (HTTPS static server).
 
-**1. Enable the Hermes API Server** — add to `~/.hermes/.env`:
-```
-API_SERVER_ENABLED=true
-API_SERVER_KEY=<a long random secret you choose>
-API_SERVER_CORS_ORIGINS=https://localhost:3000
-```
-Start (or restart) the gateway — the API server runs inside it:
-```
-hermes gateway
-```
-Confirm:
-```
-curl http://localhost:8642/v1/health
-# {"status":"ok",...}
+1. Clone or extract project.
+2. Run setup:
+
+```bash
+# macOS
+bash scripts/install.sh
+# Windows PowerShell
+.\\scripts\\install.ps1
 ```
 
-**2. Run Caddy** (HTTPS + auth injection):
-```
-cp Caddyfile.example Caddyfile     # then edit it: paste your API_SERVER_KEY
-caddy run
-```
-Confirm:
-```
-curl https://localhost:8643/v1/health
-```
-`Caddyfile` and `.env` are both git-ignored — never commit your real secret.
+3. Enter provider base URL, API key, and model when prompted. Setup writes `config.json` to project root and both `dist/` folders.
+4. Start server:
 
-**3. Run an app** — see below.
-
-## Running an app locally
-
-Each add-in is built and sideloaded independently.
-
-```
-cd word            # or: cd excel
-npm install
-npm run build       # webpack --mode production
-npm start            # sideloads the add-in into Office
+```bash
+npm run serve
 ```
 
-`npm start` runs `office-addin-debugging`, which provisions a local HTTPS dev certificate (via `office-addin-dev-certs`), serves the add-in, and launches Office with it sideloaded. Then, in the Office app: **Home tab → Show Taskpane**.
+5. Sideload both manifests in Word/Excel: **Home → Get Add-ins → Manage My Add-ins → Upload My Add-in → Upload a custom add-in → manifest.xml**.
 
-To stop the sideloaded session:
+Use `word/dist/manifest.xml` in Word and `excel/dist/manifest.xml` in Excel. Keep `npm run serve` running while using add-ins.
+
+Provider config schema:
+
+```json
+{
+  "name": "OpenAI",
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "sk-...",
+  "model": "gpt-4o-mini"
+}
 ```
-npm run stop
+
+`apiKey` is stored in plaintext local `config.json` because Office WebView cannot read arbitrary files. Protect this file and never commit it. `config.json` is git-ignored.
+## Uninstall
+
+Stop server with `npm run stop`. Remove manifests from Office via **Home → Get Add-ins → Manage My Add-ins → Delete**. Delete `config.json` to remove provider credentials.
+
+For development, use each app's existing `npm run dev-server` and `npm start` scripts.
+
+## Repo-root convenience scripts
+
+```bash
+npm run build   # builds word/ then excel/
+npm run setup   # configure provider
+npm run serve   # serve built add-ins over local HTTPS
+npm test        # shared node:test suite
+npm run lint    # lint both add-ins
 ```
 
-See [`word/`](./word) and [`excel/README.md`](./excel/README.md) for per-app usage, prerequisites, and gotchas.
+Legacy `npm start` flows are development-only and still require their original dev proxy setup.
 
+## How it works
+
+1. Task pane reads document/workbook content and typed prompt.
+2. `shared/hermes.js` loads `/config.json`, then POSTs conversation to `${baseUrl}/chat/completions` with configured model and bearer key.
+3. Reply is parsed into structured edit proposal and shown for approval.
+4. Office.js applies edits only after user clicks **Apply**.
+
+Excel exposes `=HERMES.CLASSIFY`, `=HERMES.EXTRACT`, `=HERMES.SUMMARIZE`, and `=HERMES.FORMULA_HELP` custom functions.
+
+## Security
+
+API key lives in plaintext local `config.json` because Office WebView cannot read arbitrary local files. Protect the file, do not share it, and never commit it. Use HTTPS provider URLs. Add-in sends document content and API key directly to configured provider.
+
+### Prompt injection
+
+Document/workbook content is untrusted input. Nothing is written without user approval; Excel forces model-proposed formula-like values to literal text.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+## Project layout
+
+See `word/`, `excel/`, `shared/`, `scripts/`, `config.example.json`, and `Caddyfile`.
+
+There is no npm workspace between add-ins; shared helpers are imported through relative paths.
+
+## Notes
+
+Native signed MSIX/pkg installers are not included. Package contains local sideload scripts; platform signing requires publisher certificates.
 ### Repo-root convenience scripts
 
 From the repo root, `package.json` wraps both apps:

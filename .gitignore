@@ -4,6 +4,7 @@
 
 # secrets — NEVER commit these
 Caddyfile
+config.json
 .env
 *.pem
 *.key

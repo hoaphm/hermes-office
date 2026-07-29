@@ -1,29 +1,28 @@
-# Shared backend proxy for every Hermes-for-Office app.
-# Copy this file to "Caddyfile" (no extension) and replace YOUR_API_SERVER_KEY
-# with the API_SERVER_KEY from your ~/.hermes/.env.
+# Standalone local HTTPS server for Hermes Office add-ins (without Hermes backend).
+# Copy this file to "Caddyfile" and run with:  caddy run
 #
-# Caddy terminates HTTPS on :8643 (Office add-ins must be HTTPS) and injects the
-# bearer token, so the API key never lives in any add-in's code.
-# Run with:  caddy run
+# Serves built bundles over HTTPS + config.json for provider credentials.
+# No reverse proxy needed — add-ins call providers directly from their WebView.
 
 localhost:8643 {
-    # Serve built add-in bundles so Office sideload can render task panes.
+    # Serve Word bundle.
     handle_path /word/* {
         root * word/dist
         file_server
     }
+
+    # Serve Excel bundle.
     handle_path /excel/* {
         root * excel/dist
         file_server
     }
 
-    # Route API calls to the Hermes API server.
-    handle /v1/* {
-        reverse_proxy 127.0.0.1:8642 {
-            header_up Authorization "Bearer YOUR_API_SERVER_KEY"
-        }
+    # Serve provider config.
+    handle /config.json {
+        root * .
+        file_server
     }
 
-    # Redirect everything else.
+    # Redirect everything else to Word taskpane.
     redir / https://localhost:8643/word/taskpane.html
 }
