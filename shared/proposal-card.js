@@ -217,7 +217,7 @@ export function renderProposalCard(host, proposal) {
   const card = document.createElement("section");
   card.className = "ds-card";
   card.setAttribute("role", "group");
-  card.setAttribute("aria-label", proposal.title || "Proposed changes");
+  card.setAttribute("aria-label", proposal.title || "Thay đổi đề xuất");
 
   // Header (inverted bg — focal point)
   const head = document.createElement("div");
@@ -261,7 +261,7 @@ function ensureToastHost() {
   toastHost = document.createElement("div");
   toastHost.className = "ds-toast-host";
   toastHost.setAttribute("role", "region");
-  toastHost.setAttribute("aria-label", "Notifications");
+  toastHost.setAttribute("aria-label", "Thông báo");
   toastHost.setAttribute("aria-live", "polite");
   document.body.appendChild(toastHost);
   return toastHost;
@@ -287,7 +287,7 @@ export function showToast(text, { tone = "info", timeout = 3500 } = {}) {
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "ds-toast-dismiss";
-  dismiss.setAttribute("aria-label", "Dismiss");
+  dismiss.setAttribute("aria-label", "Đóng");
   dismiss.textContent = "×";
   dismiss.addEventListener("click", () => removeToast(t));
   t.appendChild(dismiss);

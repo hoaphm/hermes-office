@@ -22,6 +22,8 @@ import {
 
 // Word's Range.search() rejects find strings longer than 255 characters.
 const MAX_SEARCH_LEN = 255;
+// Keep full-document prompts bounded so large files do not exceed model context.
+const MAX_FULLDOC_CHARS = 120000;
 
 // Bookmark used to anchor the user's selection in the document at the moment
 // they make it. A bookmark is a live document object, so re-reading its text
@@ -389,6 +391,9 @@ Office.onReady().then(() => {
         t.values.flat().some((v) => (v || "").trim().length > 0),
       );
     if (tableHasData && selText.length > 0) {
+      if (tableRows.length > 1) {
+        return { type: "multi-table", text: "" };
+      }
       return { type: "table", tables: tableRows, rawText: selText };
     }
 
@@ -639,6 +644,16 @@ ${data.text}`;
         await ensurePinnedBookmark(capturedSelectionText);
       }
 
+      if (selectionData.type === "multi-table") {
+        addMsg(
+          "bot",
+          "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.",
+          { tone: "warn" },
+        );
+        setStatus("Cần chọn một bảng.", "warn");
+        return;
+      }
+
       if (selectionData.type === "empty") {
         addMsg(
           "bot",
@@ -648,9 +663,17 @@ ${data.text}`;
         return;
       }
 
-      // No selection means whole open document. Do not silently truncate it;
-      // spelling checks must see and return edits for every part of the file.
-      const displayData = selectionData;
+      // Bound full-document prompts. Large documents otherwise exceed model
+      // context and turn a user action into a timeout.
+      const displayData = { ...selectionData };
+      let fullDocTruncated = false;
+      if (
+        displayData.type === "fulldoc" &&
+        displayData.text.length > MAX_FULLDOC_CHARS
+      ) {
+        displayData.text = displayData.text.slice(0, MAX_FULLDOC_CHARS);
+        fullDocTruncated = true;
+      }
 
       const statusText =
         selectionData.type === "fulldoc"
@@ -658,7 +681,18 @@ ${data.text}`;
           : selectionData.text
             ? `${selectionData.text.length} ký tự được chọn`
             : "Đã chọn bảng";
-      setStatus(statusText);
+      setStatus(
+        statusText +
+          (fullDocTruncated
+            ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu`
+            : ""),
+      );
+      if (fullDocTruncated) {
+        refreshContextBar({
+          snapshot: `Phân tích ${MAX_FULLDOC_CHARS}/${selectionData.text.length} ký tự đầu`,
+          willTruncate: "Tài liệu dài",
+        });
+      }
 
       const sysPrompt = buildSystemPrompt(displayData);
       const payload = [
@@ -1012,6 +1046,7 @@ ${data.text}`;
     // Drop the pin bookmark from the document so a new chat starts clean.
     clearSelectionBookmark();
     log.innerHTML = "";
+    if (emptyEl) emptyEl.classList.remove("is-hidden");
     preview.innerHTML = "";
     applyBtn.hidden = true;
     markRedWrap.hidden = true;
@@ -1019,7 +1054,7 @@ ${data.text}`;
     // default rather than carrying over whatever the user last toggled.
     const markRedEl = document.getElementById("markRed");
     if (markRedEl) markRedEl.checked = true;
-    setStatus("New chat. Select text and ask me to edit it.");
+    setStatus("Cuộc trò chuyện mới. Chọn văn bản và yêu cầu Hermes chỉnh sửa.");
     refreshContextBar();
   }
 

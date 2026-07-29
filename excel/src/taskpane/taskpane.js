@@ -82,6 +82,7 @@ Office.onReady(() => {
   const sheetEl = document.querySelector('.ds-meta-item[data-key="sheet"]');
   const rangeEl = document.querySelector('.ds-meta-item[data-key="range"]');
   const selEl = document.querySelector('.ds-meta-item[data-key="selection"]');
+  const separators = [...document.querySelectorAll(".ds-meta-sep")];
 
   function setMetaItem(el, value, { active = false } = {}) {
     if (!el) return;
@@ -110,6 +111,10 @@ Office.onReady(() => {
         active: true,
       });
     }
+    const visible = [sheetEl, rangeEl, selEl].filter((el) => el && el.dataset.empty === "false");
+    separators.forEach((sep, i) => {
+      sep.style.display = i < visible.length - 1 ? "" : "none";
+    });
   }
   refreshMeta(null);
   window.__hermesRefreshContext = refreshMeta;
@@ -165,6 +170,17 @@ async function ask() {
 
     const { prose, actions } = splitReply(raw);
     addBubble("bot", prose);
+    if (actions.length > 100) {
+      pendingActions = [];
+      addBubble(
+        "bot",
+        "Đề xuất có quá nhiều thay đổi. Hãy yêu cầu Hermes chia thành vài bước nhỏ hơn.",
+        "warn"
+      );
+      setStatus("Đề xuất quá lớn.", "warn");
+      renderActions([]);
+      return;
+    }
     pendingActions = actions;
     renderActions(actions);
     setStatus(
@@ -441,7 +457,6 @@ async function apply() {
             case "setCell": {
               const r = resolveRange(wb, sheet, a.cell);
               // Check the value hasn't changed since the proposal was made.
-              // Write "old" first so the downstream .values read reflects it.
               if (a.old !== undefined) {
                 r.load("values");
                 await context.sync();
@@ -454,11 +469,8 @@ async function apply() {
                   break;
                 }
               }
-              // Write and skip the duplicate sync at the bottom of the loop —
-              // we already synced after loading `values` above.
               r.values = [[literalCellValue(a.new)]];
               if (highlight) r.format.fill.color = "#C6EFCE";
-              failures.push("__skip_sync__");
               break;
             }
             case "setCells": {
