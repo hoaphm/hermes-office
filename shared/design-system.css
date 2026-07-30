@@ -185,6 +185,83 @@ body {
   overflow: hidden;
 }
 
+/* ---- Intro -------------------------------------------------------------- */
+.ds-intro {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  text-align: center;
+  pointer-events: none;
+  animation: intro-exit 5s var(--easing) forwards;
+}
+
+.ds-intro-mark,
+.ds-intro-name,
+.ds-intro-rule,
+.ds-intro-tagline {
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+  animation: intro-enter 700ms var(--easing) forwards;
+}
+
+.ds-intro-mark {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 4px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-1);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 26px;
+  font-weight: 800;
+  animation-delay: 150ms;
+}
+
+.ds-intro-name {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  animation-delay: 330ms;
+}
+
+.ds-intro-rule {
+  width: 0;
+  height: 2px;
+  margin: 4px auto;
+  background: var(--accent);
+  animation: intro-rule 650ms var(--easing) 620ms forwards;
+}
+
+.ds-intro-tagline {
+  color: var(--muted);
+  font-size: var(--fs-200);
+  letter-spacing: 0.08em;
+  animation-delay: 900ms;
+}
+
+@keyframes intro-enter {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes intro-rule {
+  to { width: 72px; }
+}
+
+@keyframes intro-exit {
+  0%, 76% { opacity: 1; visibility: visible; }
+  100% { opacity: 0; visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-intro { display: none; }
+}
+
 /* ---- App shell ---------------------------------------------------------- */
 .ds-app {
   display: grid;
