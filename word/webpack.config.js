@@ -25,6 +25,9 @@ module.exports = async (env, options) => {
     },
     output: {
       clean: true,
+      // Content-hash JS filenames so Office's WebView can never serve a stale
+      // cached bundle after a rebuild (it caches aggressively by URL).
+      filename: dev ? "[name].js" : "[name].[contenthash].js",
     },
     resolve: {
       extensions: [".html", ".js"],
@@ -83,8 +86,6 @@ module.exports = async (env, options) => {
               return content.toString().replace(urlDevPattern, urlProd);
             },
           },
-          // Production config template — replace with user values before serving.
-          ...(dev ? [] : [{ from: "../config.example.json", to: "config.json" }]),
         ],
       }),
     ],

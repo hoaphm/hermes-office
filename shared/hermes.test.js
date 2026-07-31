@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askHermes } from "./hermes.js";
+import { askHermes, callApi } from "./hermes.js";
 
 function configFetch(response, seen) {
   return async (url, init) => {
@@ -17,7 +17,7 @@ test("askHermes calls configured OpenAI-compatible endpoint", async () => {
   global.fetch = configFetch({
     ok: true,
     status: 200,
-    json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+    text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
   }, seen);
   assert.equal(await askHermes([{ role: "user", content: "hi" }]), "ok");
   const request = seen[1];
@@ -29,6 +29,14 @@ test("askHermes calls configured OpenAI-compatible endpoint", async () => {
   });
 });
 
+test("callApi accepts a JSON completion followed by SSE done marker", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => `${JSON.stringify({ choices: [{ message: { content: "ok" } }] })}data: [DONE]`,
+  });
+  assert.equal(await callApi([{ role: "user", content: "hi" }]), "ok");
+});
+
 test("askHermes surfaces provider HTTP errors without retrying", async () => {
   let callCount = 0;
   global.fetch = async (url) => {
@@ -37,7 +45,20 @@ test("askHermes surfaces provider HTTP errors without retrying", async () => {
     return { ok: false, status: 500, text: async () => "boom" };
   };
   await assert.rejects(() => askHermes([{ role: "user", content: "hi" }]), /Provider 500/);
-  assert.equal(callCount, 2);
+  // callCount is 1 (not 2): config is cached from the previous test, so only
+  // the API call is counted. The point is NO retry on HTTP error.
+  assert.equal(callCount, 1);
+});
+
+test("callApi passes no AbortSignal to fetch (Office WebView compatibility)", async () => {
+  let seenInit;
+  global.fetch = async (url, init) => {
+    if (url === "/config.json") return { ok: true, json: async () => ({ baseUrl: "https://api.example.test/v1", apiKey: "secret", model: "m" }) };
+    seenInit = init;
+    return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+  };
+  assert.equal(await callApi([{ role: "user", content: "hi" }]), "ok");
+  assert.equal(seenInit.signal, undefined, "fetch must receive no signal");
 });
 
 test("askHermes retries once on timeout", async () => {

@@ -30,7 +30,7 @@ const resolveJsonFile = async (...parts) => {
   if (!apiKey) { console.error("Error: API key is required."); process.exit(1); }
   let model = (await ask("Model name [OpenRouter format, e.g. anthropic/claude-sonnet-4]: "))?.trim() || src.model;
   // For non-OpenRouter, strip the slash prefix (anthropic/model -> model)
-  if (!baseUrl.includes("openrouter")) model = model.replace(/^[a-z]+\/(?=[a-z])/i, "");
+  if (!baseUrl.includes("openrouter")) model = model.replace(/^[a-zA-Z]+\/(?=.)/i, "");
 
   baseUrl = baseUrl.replace(/\/+$/, "");
 
@@ -42,17 +42,11 @@ const resolveJsonFile = async (...parts) => {
   }
 
   const config = { name: "Custom", baseUrl, apiKey, model };
-  const writeFiles = [
-    path.join(scriptDir, "..", "config.json"),
-    path.join(scriptDir, "..", "word", "dist", "config.json"),
-    path.join(scriptDir, "..", "excel", "dist", "config.json"),
-  ];
-  for (const f of writeFiles) {
-    const dir = path.dirname(f);
-    try { await fs.access(dir); } catch { await fs.mkdir(dir, { recursive: true }); }
-    await fs.writeFile(f, JSON.stringify(config, null, 2));
-  }
-  console.log("\nConfig written to:\n" + writeFiles.join("\n"));
+  const configPath = path.join(scriptDir, "..", "config.json");
+  const dir = path.dirname(configPath);
+  try { await fs.access(dir); } catch { await fs.mkdir(dir, { recursive: true }); }
+  await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+  console.log("\nConfig written to: " + configPath);
   console.log("\nNext steps:\n" +
     '  1. Build add-ins:        npm run build\n' +
     '  2. Start server:         npm run serve\n' +

@@ -1,13 +1,13 @@
-/* global Office, Word, document, setTimeout */
+/* global Office, Word, document */
+// Word task pane — thin UI + orchestration layer.
+//
+// All selection/bookmark state lives in selection-mgr.js (two orthogonal state
+// machines). All Apply logic lives in proposal-mgr.js (immutable target). This
+// file wires DOM events to those modules and renders results. No Word.run here.
 
 import { askHermes } from "../shared/hermes.js";
-// Pure helpers deduped with the Excel taskpane via the repo-root shared/
-// folder (no npm workspace between the two add-ins) — see shared/parsers.js
-// and shared/proposal-card.js. The proposal-card re-exports the parser
-// helpers we used to import directly so we still have them in scope.
 import {
   columnIndexToLetters,
-  columnLettersToIndex,
   parseWordEdits,
   parseWordTableChanges,
   appendMessage,
@@ -19,23 +19,9 @@ import {
   mountContextBar,
   renderProposalCard,
 } from "../../../shared/proposal-card.js";
+import { createSelectionMgr, MAX_FULLDOC_CHARS } from "./selection-mgr.js";
+import { createProposalMgr, cellRefToPosition } from "./proposal-mgr.js";
 
-// Word's Range.search() rejects find strings longer than 255 characters.
-const MAX_SEARCH_LEN = 255;
-// Keep full-document prompts bounded so large files do not exceed model context.
-const MAX_FULLDOC_CHARS = 120000;
-
-// Bookmark used to anchor the user's selection in the document at the moment
-// they make it. A bookmark is a live document object, so re-reading its text
-// (or range) later is always accurate — unlike a captured text string, which
-// can go stale when the selectionChanged proxy resolves against an earlier
-// snapshot. This is what makes "select A, rewrite, then select B, rewrite"
-// reliably target B instead of revisiting A.
-const PIN_BOOKMARK_NAME = "HermesPinnedSelection";
-
-// Keep the replayed conversation bounded. Every turn also re-embeds a fresh
-// system prompt holding up to MAX_FULLDOC_CHARS of the document, so an
-// unbounded history made each request grow without limit.
 const MAX_HISTORY_MESSAGES = 20;
 
 Office.onReady().then(() => {
@@ -49,521 +35,67 @@ Office.onReady().then(() => {
   const statusRowEl = document.getElementById("statusRow");
   const preview = document.getElementById("preview");
   const emptyEl = document.getElementById("empty");
-  // Typing indicator shown while Hermes is thinking — created on send,
-  // removed when the reply lands (or on error).
   let typingEl = null;
-  // Context chips render into their own row below the status bar — falling
-  // back to the header keeps older templates (chips inline) working.
   const contextHost =
     document.getElementById("contextRow") ||
     document.querySelector(".ds-header") ||
     document.querySelector("header") ||
     document.body;
 
-  // State — declared BEFORE refreshContextBar() because that function reads
-  // pinnedSelectionText. Calling refreshContextBar() before these lets exist
-  // would throw a ReferenceError and abort the whole Office.onReady() chain,
-  // leaving zero event listeners attached (which is why Enter and the Send
-  // button did nothing in the field).
+  // ---- state (UI-level only; selection state is in selection-mgr) ----------
   let messages = [];
-  let lastProposal = null;
-  // Re-entrancy guard. setBusyUi only sets aria-disabled (deliberately, so the
-  // button keeps focus) — which does NOT block clicks. Without this flag,
-  // hammering Send/Enter ran several sendMessage() calls concurrently, letting
-  // their messages.push() interleave and clobbering lastProposal; the same on
-  // Apply let a proposal be written into the document twice.
-  let busy = false;
-  // Snapshot of the text range captured at send time, used as a fallback
-  // target if the user's selection is lost by the time they click Apply.
-  let capturedSelectionText = "";
-  // Selection captured at the moment it happens in the document (via
-  // selectionChanged), NOT at click time — clicking the Ask button moves
-  // focus into the taskpane and drops the in-document selection, so reading
-  // it fresh inside sendMessage() would always see "" and fall back to
-  // treating the request as whole-document.
-  let pinnedSelectionText = "";
-  // True only while current Word selection is a non-empty passage. Prevents
-  // an old bookmark from turning a new collapsed selection into old-text mode.
-  let selectionIsPinned = false;
-  // The in-flight pinCurrentSelection() promise. Ask awaits it before reading
-  // the bookmark, so selecting a passage and clicking Ask immediately can't
-  // read the pin mid-flight and resolve the PREVIOUS passage.
-  let pendingPin = Promise.resolve();
+  let lastProposal = null; // { type, ... } — what Apply will act on
+  let busy = false; // UI re-entrancy guard (distinct from selection-mgr gate)
 
-  // Context bar lives in its own row under the status bar — re-rendered
-  // cheaply on every send/apply so the user always sees what range/pin state
-  // is going to Hermes next.
+  // ---- selection module (owns Word.run, bookmark, gate) --------------------
+  const sel = createSelectionMgr({ runWord: (fn) => Word.run(fn) });
+
+  // ---- context bar (pure UI) -----------------------------------------------
   function refreshContextBar(extra) {
     const chips = [];
-    if (pinnedSelectionText) {
-      chips.push({
-        label: "Pinned",
-        value: pinnedSelectionText.slice(0, 60),
-        state: "pinned",
-      });
+    const pinned = sel.getPinnedText();
+    if (pinned) {
+      chips.push({ label: "Pinned", value: pinned.slice(0, 60), state: "pinned" });
     }
-    if (extra && extra.snapshot) {
-      chips.push({ label: "Snapshot", value: extra.snapshot });
-    }
-    if (extra && extra.willTruncate) {
-      chips.push({
-        label: "⚠ Cắt bớt",
-        value: extra.willTruncate,
-        state: "warn",
-      });
-    }
-    if (!chips.length)
-      chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
+    if (extra && extra.snapshot) chips.push({ label: "Snapshot", value: extra.snapshot });
+    if (extra && extra.willTruncate) chips.push({ label: "⚠ Cắt bớt", value: extra.willTruncate, state: "warn" });
+    if (!chips.length) chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
     mountContextBar(contextHost, chips);
   }
   refreshContextBar();
 
-  // opts is forwarded (not dropped) so { tone: "err" } / { tone: "ok" } from
-  // the call sites below actually reaches the bubble's styling.
+  // ---- UI helpers ----------------------------------------------------------
   function addMsg(role, text, opts) {
-    // The first message replaces the empty state for this chat;
-    // newChat() brings it back.
     if (emptyEl) emptyEl.classList.add("is-hidden");
     return appendMessage(log, role, text, opts);
   }
 
   function setStatus(text, tone) {
     setStatusUi(statusEl, text, { tone });
-    // Mirror the tone onto the row so the whole bar can tint (busy) or
-    // change its dot (err) — the row wraps the dot, which sits OUTSIDE
-    // #status so setStatusUi's textContent write can't wipe it.
     if (statusRowEl) {
       if (tone) statusRowEl.dataset.tone = tone;
       else delete statusRowEl.dataset.tone;
     }
   }
 
-  // ---- reading the selection (text / table / full doc) ---------------------
-
-  // Word.run with retry — the first read right after a document switch can
-  // fail with a transient "document busy / call cancelled" error, so retry
-  // before giving up. Only transient Office error codes are retried; a real
-  // failure (permission denied, invalid argument, etc.) surfaces immediately.
-  const TRANSIENT_CODES = new Set(["ActivitySuspended", "ItemNotFound"]);
-  function wordRunWithRetry(fn, retries = 3) {
-    return new Promise((resolve, reject) => {
-      const attempt = (n) => {
-        Word.run(fn)
-          .then(resolve)
-          .catch((err) => {
-            if (n <= 1 || !TRANSIENT_CODES.has(err && err.code)) reject(err);
-            else setTimeout(() => attempt(n - 1), 350);
-          });
-      };
-      attempt(retries);
-    });
-  }
-
-  function readSelectedText() {
-    return wordRunWithRetry((context) => {
-      const sel = context.document.getSelection();
-      sel.load("text");
-      return context.sync().then(() => (sel.text || "").trim());
-    }).catch(() => "");
-  }
-
-  // Fallback whole-document reader using the Office.js v1 file API. It binds
-  // to the live document directly, so it works even when Word.run's context
-  // is stale after opening a new file.
-  function readFullBodyViaFile() {
-    return new Promise((resolve) => {
-      Office.context.document.getFileAsync(
-        Office.FileType.Text,
-        { sliceSize: 65536 },
-        (result) => {
-          if (result.status !== Office.AsyncResultStatus.Succeeded)
-            return resolve("");
-          const file = result.value;
-          const sliceCount = file.sliceCount;
-          let cur = 0;
-          let text = "";
-          const next = () => {
-            if (cur >= sliceCount) {
-              file.closeAsync();
-              return resolve(text.trim());
-            }
-            file.getSliceAsync(cur, (slice) => {
-              if (slice.status === Office.AsyncResultStatus.Succeeded) {
-                text += slice.data;
-                cur += 1;
-                next();
-              } else {
-                file.closeAsync();
-                resolve(text.trim());
-              }
-            });
-          };
-          next();
-        },
-      );
-    });
-  }
-
-  async function readFullBody() {
-    try {
-      return await wordRunWithRetry((context) => {
-        const range = context.document.body.getRange();
-        range.load("text");
-        return context.sync().then(() => (range.text || "").trim());
-      });
-    } catch (e) {
-      // Word.run failed (stale context on a freshly opened file, etc.) —
-      // fall back to the v1 file API before reporting a failure.
-      const viaFile = await readFullBodyViaFile();
-      if (viaFile) return viaFile;
-      throw e;
-    }
-  }
-
-  // Anchor the current selection in the document with a bookmark so the exact
-  // range survives focus leaving the document. Re-create it on every change so
-  // only the LATEST selection is pinned — this is what keeps "select B, rewrite"
-  // from re-targeting the previously selected passage A.
-  async function pinCurrentSelection() {
-    try {
-      await wordRunWithRetry(async (context) => {
-        const sel = context.document.getSelection();
-        sel.load("text");
-        await context.sync();
-        const text = (sel.text || "").trim();
-        // Only (re)pin on a NON-empty selection. An empty/collapsed selection
-        // event also fires when focus merely leaves the document (e.g. the
-        // user clicks Ask or Apply in the taskpane) — deleting the bookmark
-        // there would wipe the pin the pending proposal depends on. Stale
-        // pins are cleared by newChat() / replaced by the next real selection.
-        if (text.length > 0) {
-          pinnedSelectionText = text;
-          selectionIsPinned = true;
-          // deleteBookmark is a no-op when the bookmark doesn't exist;
-          // delete-then-insert in one batch replaces any previous pin.
-          context.document.deleteBookmark(PIN_BOOKMARK_NAME);
-          sel.insertBookmark(PIN_BOOKMARK_NAME);
-          await context.sync();
-        }
-      });
-    } catch {
-      // Selection pinning is best-effort (the bookmark APIs need WordApi 1.4);
-      // the pinnedSelectionText / fresh-read fallbacks still work.
-    }
-  }
-
-  // Read the text of the pinned selection back from its bookmark. Returns null
-  // when no selection is pinned (empty selection, brand-new chat, etc.).
-  async function getPinnedSelectionFromBookmark() {
-    try {
-      return await wordRunWithRetry((context) => {
-        // Note: the Word JS API has no document.bookmarks collection (that's
-        // the VBA object model) — bookmarks are reached via this Document
-        // method, which returns the bookmark's Range directly.
-        const range =
-          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
-        range.load(["isNullObject", "text"]);
-        return context.sync().then(() => {
-          if (range.isNullObject) return null;
-          const t = (range.text || "").trim();
-          return t.length > 0 ? t : null;
-        });
-      });
-    } catch {
-      return null;
-    }
-  }
-
-  // Make the pin authoritative at Ask time: guarantee the bookmark holds
-  // exactly the passage being sent to Hermes, regardless of any stray
-  // selectionChanged noise fired while focus moved into the taskpane. If the
-  // bookmark already matches, this is a no-op; otherwise re-anchor it on the
-  // live selection (or a search hit) whose text matches what was captured.
-  async function ensurePinnedBookmark(expectedText) {
-    if (!expectedText) return;
-    // Bookmark APIs need WordApi 1.4 — pre-1.4 hosts rely on the
-    // captured-text search fallback at Apply time instead.
-    if (!Office.context.requirements.isSetSupported("WordApi", "1.4")) return;
-    try {
-      await wordRunWithRetry(async (context) => {
-        const bmRange =
-          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
-        bmRange.load(["isNullObject", "text"]);
-        const sel = context.document.getSelection();
-        sel.load("text");
-        await context.sync();
-        if (
-          !bmRange.isNullObject &&
-          (bmRange.text || "").trim() === expectedText
-        )
-          return;
-        let target = null;
-        if ((sel.text || "").trim() === expectedText) {
-          target = sel;
-        } else if (expectedText.length <= MAX_SEARCH_LEN) {
-          const ranges = context.document.body.search(expectedText, {
-            matchCase: false,
-          });
-          ranges.load("items");
-          await context.sync();
-          if (ranges.items.length > 0) target = ranges.items[0];
-        }
-        if (target) {
-          context.document.deleteBookmark(PIN_BOOKMARK_NAME);
-          target.insertBookmark(PIN_BOOKMARK_NAME);
-          await context.sync();
-        }
-      });
-    } catch {
-      // Best-effort — Apply still has the bookmark/search fallbacks.
-    }
-  }
-
-  // Remove the pin bookmark (e.g. on a fresh chat, or when the flow doesn't
-  // need it) so it never lingers in the document.
-  async function clearSelectionBookmark() {
-    try {
-      await wordRunWithRetry(async (context) => {
-        // deleteBookmark is a no-op when the bookmark doesn't exist.
-        context.document.deleteBookmark(PIN_BOOKMARK_NAME);
-        await context.sync();
-      });
-    } catch {
-      // best-effort cleanup
-    }
-  }
-
-  // Fires on every in-document selection change; pins the new selection with a
-  // bookmark so getSelectionData() later resolves the EXACT passage the user
-  // just selected. Runs outside a Word.run context, so it opens its own.
-  async function onSelectionChangedHandler() {
-    // Word fires an empty selection event both when the user clicks the
-    // taskpane and when they place the cursor in the document. Keep the pin
-    // during Ask/Apply so focus loss does not destroy its target; while idle,
-    // an empty selection means the old pin is stale and must be cleared.
-    if (!busy) {
-      const text = await readSelectedText();
-      if (!text) {
-        pinnedSelectionText = "";
-        selectionIsPinned = false;
-        await clearSelectionBookmark();
-        pendingPin = Promise.resolve();
-        refreshContextBar();
-        return;
-      }
-    }
-
-    // pinCurrentSelection never rejects (it catches internally), so this
-    // promise is always safe to await from getSelectionData().
-    pendingPin = pinCurrentSelection();
-    await pendingPin;
-  }
-
-  // Note: this handler is never explicitly removed (no
-  // context.document.onSelectionChanged.remove call anywhere). That's
-  // intentional — the taskpane's JS realm is torn down and reloaded fresh
-  // every time the user switches/opens a document, so there is no previous
-  // handler left dangling to leak.
-  function registerSelectionChangedHandler() {
-    Word.run(async (context) => {
-      context.document.onSelectionChanged.add(onSelectionChangedHandler);
-      await context.sync();
-    }).catch(() => {});
-  }
-
-  async function getSelectionData() {
-    // If a selectionChanged re-pin is still in flight (the user selected a
-    // passage and clicked Ask right away), let it finish first — reading the
-    // bookmark mid-pin would resolve the previously pinned passage.
-    await pendingPin;
-
-    const selText = await readSelectedText();
-
-    // A table selection still carries text, so check tables FIRST.
-    const tableRows = await detectSelectedTable();
-    // Only enter table mode if the table actually has data. An empty
-    // placeholder table (e.g. a lone blank row) must not hijack the flow
-    // and hide the rest of the document — fall through to full-doc instead.
-    const tableHasData =
-      tableRows &&
-      tableRows.length > 0 &&
-      tableRows.some((t) =>
-        t.values.flat().some((v) => (v || "").trim().length > 0),
-      );
-    if (tableHasData && selText.length > 0) {
-      if (tableRows.length > 1) {
-        return { type: "multi-table", text: "" };
-      }
-      return { type: "table", tables: tableRows, rawText: selText };
-    }
-
-    // The LIVE selection is authoritative at Ask time; the pinned bookmark is
-    // only a fallback for when the selection collapsed as focus moved into
-    // the taskpane. Preferring the bookmark unconditionally let a STALE pin
-    // win — e.g. Apply re-anchors the bookmark on the previous passage's
-    // rewritten text, so if the pin handler hadn't caught up with a newly
-    // selected passage yet, Ask would silently target the old one again.
-    const pinnedFromBookmark = await getPinnedSelectionFromBookmark();
-    let effectiveSelText;
-    if (selText.length > 0 && selText !== pinnedFromBookmark) {
-      // Fresh selection the pin missed (or hasn't caught up with) — re-anchor
-      // the bookmark on it now via the live selection RANGE, which works for
-      // any length (body.search rejects find strings over 255 chars). This
-      // also updates pinnedSelectionText.
-      await pinCurrentSelection();
-      effectiveSelText = selText;
-    } else if (selText.length > 0) {
-      // Live selection matches bookmark — use it directly.
-      effectiveSelText = selText;
-    } else if (
-      selectionIsPinned &&
-      pinnedFromBookmark &&
-      pinnedFromBookmark.length > 0
-    ) {
-      // Live selection is empty but a valid pin exists (focus left the doc).
-      effectiveSelText = pinnedFromBookmark;
-    } else if (selectionIsPinned && pinnedSelectionText.trim().length > 0) {
-      // Pin flag set but bookmark couldn't be read — fall back to cached text.
-      effectiveSelText = pinnedSelectionText;
-    } else {
-      // No selection and no valid pin — treat as empty.
-      effectiveSelText = "";
-    }
-
-    // Plain text selection (even short) → operate on exactly that text.
-    if (effectiveSelText.length > 0) {
-      capturedSelectionText = effectiveSelText;
-      return { type: "text", text: effectiveSelText };
-    }
-
-    // Nothing selected → operate on the whole open document.
-    const bodyText = await readFullBody();
-    if (bodyText.length > 0) {
-      return { type: "fulldoc", text: bodyText };
-    }
-
-    return { type: "empty", text: "" };
-  }
-
-  async function readTableCells(context, tables) {
-    const rows = [];
-    for (const table of tables) {
-      table.load(["rowCount", "columnCount"]);
-      await context.sync();
-      // Load every cell's range up front and sync ONCE per table, instead of
-      // round-tripping per cell — and read .text off the same range object
-      // that was loaded (a fresh getRange() call returns an unloaded proxy).
-      const rangeRows = [];
-      for (let r = 0; r < table.rowCount; r++) {
-        const rangeRow = [];
-        for (let c = 0; c < table.columnCount; c++) {
-          const range = table.getCell(r, c).body.getRange();
-          range.load("text");
-          rangeRow.push(range);
-        }
-        rangeRows.push(rangeRow);
-      }
-      await context.sync();
-      const values = rangeRows.map((rangeRow) =>
-        rangeRow.map((range) => (range.text || "").trim()),
-      );
-      rows.push({
-        rowCount: table.rowCount,
-        columnCount: table.columnCount,
-        values,
-      });
-    }
-    return rows;
-  }
-
-  // Detect a table in the current selection. Loads are isolated so a missing
-  // parentTable (cursor outside any table) never throws and breaks the flow.
-  async function detectSelectedTable() {
-    const fromSelection = await Word.run(async (context) => {
-      const sel = context.document.getSelection();
-      sel.load("tables/items");
-      await context.sync();
-      // The rule wants "tables/items/length" loaded explicitly, but .length is
-      // a plain array property of the items collection we just loaded.
-      // eslint-disable-next-line office-addins/load-object-before-read
-      if (sel.tables.items.length === 0) return null;
-      return readTableCells(context, sel.tables.items);
-    }).catch(() => null);
-    if (fromSelection) return fromSelection;
-
-    const fromParent = await Word.run(async (context) => {
-      const sel = context.document.getSelection();
-      sel.load("parentTable/isNullObject");
-      await context.sync();
-      if (sel.parentTable.isNullObject) return null;
-      // We deliberately pass the unloaded Table proxy on; readTableCells()
-      // issues its own load()/sync() for the properties it needs.
-      // eslint-disable-next-line office-addins/load-object-before-read
-      return readTableCells(context, [sel.parentTable]);
-    }).catch(() => null);
-    if (fromParent) return fromParent;
-
-    return null;
-  }
-
-  // Content fingerprint of a table snapshot ({rowCount, columnCount, values}).
-  // Word's JS API gives no stable table identifier we can hold across
-  // Word.run contexts, so the table's own pre-edit contents are what let
-  // Apply re-find the exact table a proposal was generated against.
-  function tableSignature(t) {
-    return `${t.rowCount}x${t.columnCount}:${JSON.stringify(t.values)}`;
-  }
-
-  // Locate the table whose current contents still match `sig`. Checks the
-  // tables in the live selection first (the common case, and cheap), then
-  // falls back to scanning the body — the user may have clicked out of the
-  // table between Ask and Apply. Returns null when no table matches, which
-  // the caller turns into a "select the table again" error rather than
-  // writing into whatever table happens to be selected now.
-  async function findProposalTable(context, sig) {
-    const sel = context.document.getSelection();
-    sel.load("tables/items");
-    const body = context.document.body;
-    body.load("tables/items");
-    await context.sync();
-
-    const matches = [];
-    for (const table of new Set(sel.tables.items.concat(body.tables.items))) {
-      const [snap] = await readTableCells(context, [table]);
-      if (snap && tableSignature(snap) === sig) matches.push(table);
-    }
-    // Same contents can appear in multiple tables. Picking the first match
-    // would write a proposal into an unrelated table.
-    return matches.length === 1 ? matches[0] : null;
-  }
-
-  function formatTablePreview(tbl) {
-    const flat = tbl.values
-      .map((row, ri) => {
-        const cells = row
-          .map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`)
-          .join("\n");
-        return `Row ${ri + 1}:\n${cells}`;
-      })
-      .join("\n\n");
-    return `${tbl.rowCount} rows x ${tbl.columnCount} cols\n\n${flat}`;
-  }
-
-  // ---- system prompt --------------------------------------------------------
-
+  // ---- system prompt builder (pure) ----------------------------------------
   function buildSystemPrompt(data) {
     if (!data || data.type === "empty") {
       return "You are editing a Word document. The user has not selected any text. Generate the content they request. Respond with the text only — no markdown fences, no explanations.";
     }
-
     if (data.type === "table") {
       let tableDesc = "";
       if (data.tables && data.tables.length > 0) {
         tableDesc = data.tables
-          .map(
-            (t, i) =>
-              `TABLE ${i + 1} (${t.rowCount} rows x ${t.columnCount} cols):\n${formatTablePreview(t)}`,
-          )
+          .map((t, i) => {
+            const flat = t.values
+              .map((row, ri) => {
+                const cells = row.map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`).join("\n");
+                return `Row ${ri + 1}:\n${cells}`;
+              })
+              .join("\n\n");
+            return `TABLE ${i + 1} (${t.rowCount} rows x ${t.columnCount} cols):\n${flat}`;
+          })
           .join("\n\n");
       }
       return `You are editing a table in a Word document. Each cell is labeled [ColRow] (e.g. [A1] = first column, first row). Below is the current table data. The user will ask you to modify it.
@@ -577,9 +109,6 @@ Only include cells that changed. Also give a brief natural-language reply explai
 CURRENT TABLE DATA:
 ${tableDesc}`;
     }
-
-    // Full-document mode (nothing selected) — apply changes to the WHOLE file,
-    // but ONLY the spots that change. Never paste a review list over the doc.
     if (data.type === "fulldoc") {
       return `You are checking and editing the ENTIRE open Word document. The user selected no text.
 
@@ -595,7 +124,6 @@ Rules:
 CURRENT DOCUMENT:
 ${data.text}`;
     }
-
     return `You are editing a Word document. The user has selected a SPECIFIC passage and wants ONLY that passage modified.
 
 CRITICAL RULES:
@@ -607,18 +135,14 @@ SELECTED TEXT:
 ${data.text}`;
   }
 
-  // ---- send / apply ---------------------------------------------------------
-
-  // A reply that is nothing but one fenced block is the model wrapping the
-  // document in ``` — unwrap it, otherwise the fence markers get written into
-  // the document verbatim. Only unwraps when the ENTIRE reply is one fence, so
-  // a document that legitimately contains code blocks is left alone.
+  // A reply that is nothing but one fenced block — unwrap it.
   function stripWrappingFence(text) {
     const t = String(text).trim();
     const m = t.match(/^```[a-zA-Z]*[ \t]*\r?\n([\s\S]*?)\r?\n?```$/);
     return m ? m[1].trim() : t;
   }
 
+  // ---- send ----------------------------------------------------------------
   async function sendMessage() {
     const userText = input.value.trim();
     if (!userText || busy) return;
@@ -634,43 +158,34 @@ ${data.text}`;
     preview.innerHTML = "";
     refreshContextBar({ snapshot: "Đang đọc tài liệu…" });
 
+    const handle = sel.beginAsk();
     try {
-      const selectionData = await getSelectionData();
+      let selectionData;
+      try {
+        selectionData = await sel.getSelectionData();
+      } catch (e) {
+        throw new Error(`[stage:read-doc] ${e.message || e}`);
+      }
 
-      // Re-assert the pin for exactly the text being sent to Hermes, so a
-      // stray empty selectionChanged (focus moving into the taskpane) can
-      // never leave Apply without an anchor for this proposal.
       if (selectionData.type === "text") {
-        await ensurePinnedBookmark(capturedSelectionText);
+        await sel.ensurePinnedBookmark(selectionData.capturedText);
       }
 
       if (selectionData.type === "multi-table") {
-        addMsg(
-          "bot",
-          "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.",
-          { tone: "warn" },
-        );
+        addMsg("bot", "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.", { tone: "warn" });
         setStatus("Cần chọn một bảng.", "warn");
         return;
       }
-
       if (selectionData.type === "empty") {
-        addMsg(
-          "bot",
-          "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.",
-        );
+        addMsg("bot", "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.");
         setStatus("Không có văn bản (doc trống / chưa sync xong). Thử lại.");
         return;
       }
 
-      // Bound full-document prompts. Large documents otherwise exceed model
-      // context and turn a user action into a timeout.
+      // Bound full-document prompts.
       const displayData = { ...selectionData };
       let fullDocTruncated = false;
-      if (
-        displayData.type === "fulldoc" &&
-        displayData.text.length > MAX_FULLDOC_CHARS
-      ) {
+      if (displayData.type === "fulldoc" && displayData.text.length > MAX_FULLDOC_CHARS) {
         displayData.text = displayData.text.slice(0, MAX_FULLDOC_CHARS);
         fullDocTruncated = true;
       }
@@ -681,17 +196,9 @@ ${data.text}`;
           : selectionData.text
             ? `${selectionData.text.length} ký tự được chọn`
             : "Đã chọn bảng";
-      setStatus(
-        statusText +
-          (fullDocTruncated
-            ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu`
-            : ""),
-      );
+      setStatus(statusText + (fullDocTruncated ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu` : ""));
       if (fullDocTruncated) {
-        refreshContextBar({
-          snapshot: `Phân tích ${MAX_FULLDOC_CHARS}/${selectionData.text.length} ký tự đầu`,
-          willTruncate: "Tài liệu dài",
-        });
+        refreshContextBar({ snapshot: `Phân tích ${MAX_FULLDOC_CHARS}/${selectionData.text.length} ký tự đầu`, willTruncate: "Tài liệu dài" });
       }
 
       const sysPrompt = buildSystemPrompt(displayData);
@@ -703,83 +210,58 @@ ${data.text}`;
 
       setStatus("Hermes đang suy nghĩ…", "busy");
       typingEl = appendTypingIndicator(log);
-      const reply = await askHermes(payload);
+      let reply;
+      try {
+        reply = await askHermes(payload);
+      } catch (e) {
+        throw new Error(`[stage:call-api] ${e.message || e}`);
+      }
       removeTypingIndicator(typingEl);
       typingEl = null;
       addMsg("bot", reply);
 
+      // Capture immutable target for Apply BEFORE rendering.
+      const target = sel.captureTarget(selectionData);
+
       if (selectionData.type === "table") {
         const tableChanges = parseWordTableChanges(reply);
         if (tableChanges.length > 0) {
-          // Fingerprint the table this proposal was built from. Apply used to
-          // just grab sel.tables.items[0] at click time, so selecting a
-          // different table before clicking Apply wrote the changes into the
-          // wrong table.
           const table = selectionData.tables[0];
           lastProposal = {
             type: "table",
+            target,
             changes: tableChanges.map((change) => {
-              const pos = cellRefToPosition(
-                change.cell,
-                table.rowCount,
-                table.columnCount,
-              );
-              return {
-                ...change,
-                old: pos ? table.values[pos.row][pos.col] : undefined,
-              };
+              const pos = cellRefToPosition(change.cell, table.rowCount, table.columnCount);
+              return { ...change, old: pos ? table.values[pos.row][pos.col] : undefined };
             }),
-            tableSig: tableSignature(table),
           };
-          // Render via the shared card so Word and Excel get the same visual
-          // treatment for proposals. tableChanges here are plain {cell, value}
-          // records, so we normalise them into the standard replace action
-          // shape that describeAction() understands.
           renderProposalCard(preview, {
             title: "Cập nhật bảng đã chọn",
-            actions: lastProposal.changes.map((c) => ({
-              type: "setCell",
-              cell: c.cell,
-              old: c.old,
-              new: c.value,
-            })),
+            actions: lastProposal.changes.map((c) => ({ type: "setCell", cell: c.cell, old: c.old, new: c.value })),
           });
           applyBtn.hidden = false;
           markRedWrap.hidden = false;
         }
       } else if (selectionData.type === "text") {
-        // The system prompt asks for bare text, but unwrap a stray fence
-        // anyway rather than pasting ``` markers into the document.
         const passage = stripWrappingFence(reply);
-        lastProposal = { type: "text", text: passage };
+        lastProposal = { type: "text", target, text: passage };
         renderProposalCard(preview, {
           title: "Đề xuất chỉnh sửa đoạn đã chọn",
-          actions: [
-            { type: "replace", find: capturedSelectionText, replace: passage },
-          ],
+          actions: [{ type: "replace", find: target.text, replace: passage }],
         });
         applyBtn.hidden = false;
         markRedWrap.hidden = false;
       } else if (selectionData.type === "fulldoc") {
-        // Inline edits only (fix spelling etc.) — only the wrong spots change.
-        // No fulldoc-full fallback: raw prose replies (e.g. a model listing
-        // errors instead of returning JSON edits) must never replace the
-        // entire document. Ask the user to select-all for full rewrites.
         const edits = parseWordEdits(reply);
         if (edits.length > 0) {
-          lastProposal = { type: "fulldoc-edits", edits };
+          lastProposal = { type: "fulldoc-edits", target, edits };
           renderProposalCard(preview, {
             title: "Sửa nhanh toàn văn bản",
-            actions: edits.map((e) => ({
-              type: "replace",
-              find: e.find,
-              replace: e.replace,
-            })),
+            actions: edits.map((e) => ({ type: "replace", find: e.find, replace: e.replace })),
           });
           applyBtn.hidden = false;
           markRedWrap.hidden = false;
         } else {
-          // Plain answer / review — nothing to apply.
           lastProposal = null;
           preview.innerHTML = `<div class="ds-card-action"><div class="label">Đây là câu trả lời / nhận xét — không áp dụng trực tiếp.</div></div>`;
           applyBtn.hidden = true;
@@ -789,9 +271,6 @@ ${data.text}`;
 
       messages.push({ role: "user", content: userText });
       messages.push({ role: "assistant", content: reply });
-      // Drop the oldest turns once the window is full. The system prompt is
-      // rebuilt from the live document on every send, so it is not part of
-      // `messages` and can't be trimmed away here.
       if (messages.length > MAX_HISTORY_MESSAGES) {
         messages = messages.slice(-MAX_HISTORY_MESSAGES);
       }
@@ -799,221 +278,44 @@ ${data.text}`;
     } catch (err) {
       removeTypingIndicator(typingEl);
       typingEl = null;
-      const errMsg = err.message || String(err);
-      addMsg("bot", errMsg, { tone: "err" });
+      addMsg("bot", (err.message || String(err)) + "\n" + (err.stack || ""), { tone: "err" });
       setStatus("Lỗi.", "err");
     } finally {
+      handle.end();
       busy = false;
       setBusyUi(askBtn, false);
       input.focus();
     }
   }
 
-  function cellRefToPosition(cellRef, rowCount, columnCount) {
-    const match = cellRef.match(/^([A-Z]+)(\d+)$/i);
-    if (!match) return null;
-    const col = columnLettersToIndex(match[1].toUpperCase());
-    const row = parseInt(match[2], 10) - 1;
-    if (col < 0 || col >= columnCount || row < 0 || row >= rowCount)
-      return null;
-    return { row, col };
-  }
-
-  // Word's Range.search() rejects find strings longer than 255 characters.
-  // MAX_SEARCH_LEN is declared at the top level of this module.
-
-  function hasChainedEdits(edits) {
-    return edits.some(
-      (edit, i) =>
-        edit.replace &&
-        edits.some((other, j) => i !== j && edit.replace.includes(other.find)),
-    );
-  }
-
+  // ---- apply ---------------------------------------------------------------
   async function applyEdit() {
     if (!lastProposal || busy) return;
 
-    // Đọc trạng thái toggle "đánh dấu đỏ" một lần — nếu bật, mọi đoạn văn bản
-    // được chèn/sửa trong lượt Apply này sẽ được tô màu đỏ để dễ nhận biết.
     const markRedEl = document.getElementById("markRed");
     const markRed = markRedEl && markRedEl.checked;
 
     busy = true;
     setBusyUi(applyBtn, true);
     setStatus("Đang áp dụng…", "busy");
-    let editStats = null;
-    try {
-      if (lastProposal.type === "table") {
-        await Word.run(async (context) => {
-          // Re-find the table this proposal was generated against by its
-          // pre-edit contents, instead of writing into whichever table is
-          // selected at click time.
-          const table = await findProposalTable(context, lastProposal.tableSig);
-          if (!table)
-            throw new Error(
-              "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
-            );
-          table.load(["rowCount", "columnCount"]);
-          await context.sync();
 
-          const cells = [];
-          for (const change of lastProposal.changes) {
-            const pos = cellRefToPosition(
-              change.cell,
-              table.rowCount,
-              table.columnCount,
-            );
-            if (!pos || change.old === undefined)
-              throw new Error("Đề xuất có ô không hợp lệ. Hãy hỏi lại Hermes.");
-            const range = table.getCell(pos.row, pos.col).body.getRange();
-            range.load("text");
-            cells.push({ change, range });
-          }
-          await context.sync();
-          if (
-            cells.some(
-              ({ change, range }) => (range.text || "").trim() !== change.old,
-            )
-          )
-            throw new Error(
-              "Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.",
-            );
-          for (const { change, range } of cells) {
-            const inserted = range.insertText(String(change.value), "Replace");
-            if (markRed) inserted.font.color = "#FF0000";
-          }
-          await context.sync();
-        });
+    const handle = sel.beginApply();
+    try {
+      const mgr = createProposalMgr({ target: lastProposal.target, runWord: (fn) => Word.run(fn), showToast });
+      let stats;
+      if (lastProposal.type === "table") {
+        stats = await mgr.applyTable(lastProposal.changes, { markRed });
       } else if (lastProposal.type === "fulldoc-edits") {
-        if (hasChainedEdits(lastProposal.edits))
-          throw new Error(
-            "Đề xuất có các chỉnh sửa chồng chéo. Hãy hỏi lại Hermes.",
-          );
-        // Inline search-and-replace for each edit — only wrong spots change,
-        // surrounding formatting is preserved. Each edit is applied and
-        // sync'd independently so one bad edit (search text too long, or no
-        // longer found) can't abort the rest of the batch.
-        editStats = await Word.run(async (context) => {
-          let applied = 0;
-          let skipped = 0;
-          for (const edit of lastProposal.edits) {
-            if (!edit.find || edit.find.length > MAX_SEARCH_LEN) {
-              skipped++;
-              continue;
-            }
-            try {
-              const ranges = context.document.body.search(edit.find, {
-                matchCase: false,
-              });
-              ranges.load("items");
-              await context.sync();
-              // A search that matched nothing changed the document in no way,
-              // so it must count as skipped — incrementing `applied`
-              // unconditionally reported "Applied 5 action(s)" for a document
-              // that was never touched.
-              if (ranges.items.length === 0) {
-                skipped++;
-                continue;
-              }
-              if (ranges.items.length > 1) {
-                showToast(
-                  `"${edit.find}" xuất hiện ${ranges.items.length} lần — sẽ thay TẤT CẢ.`,
-                  { tone: "warn", timeout: 4000 },
-                );
-              }
-              ranges.items.forEach((r) => {
-                const inserted = r.insertText(String(edit.replace), "Replace");
-                if (markRed) inserted.font.color = "#FF0000";
-              });
-              await context.sync();
-              applied++;
-            } catch {
-              skipped++;
-            }
-          }
-          return { applied, skipped };
-        });
+        stats = await mgr.applyFulldocEdits(lastProposal.edits, { markRed });
       } else {
-        // Plain text: replace the pinned selection if its bookmark is still in
-        // the document AND still holds the passage this proposal was generated
-        // for — the pin tracks the LATEST selection, so if the user selected a
-        // different passage after asking, blindly inserting into the bookmark
-        // would overwrite the wrong text. On mismatch (or a lost bookmark),
-        // fall back to a search for the captured text so Apply never fails
-        // just because focus moved to the task pane.
-        await Word.run(async (context) => {
-          // Bookmark APIs need WordApi 1.4 — on older hosts skip straight to
-          // the search fallback instead of throwing mid-batch.
-          const canUseBookmark = Office.context.requirements.isSetSupported(
-            "WordApi",
-            "1.4",
-          );
-          let bmRange = null;
-          let bmText = null;
-          if (canUseBookmark) {
-            bmRange =
-              context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
-            bmRange.load(["isNullObject", "text"]);
-            await context.sync();
-            if (!bmRange.isNullObject) bmText = (bmRange.text || "").trim();
-          }
-          const bookmarkMatchesProposal =
-            bmText !== null &&
-            (!capturedSelectionText || bmText === capturedSelectionText);
-          let inserted = null;
-          if (bookmarkMatchesProposal) {
-            inserted = bmRange.insertText(lastProposal.text, "Replace");
-          } else if (
-            capturedSelectionText &&
-            capturedSelectionText.length <= MAX_SEARCH_LEN
-          ) {
-            const ranges = context.document.body.search(capturedSelectionText, {
-              matchCase: false,
-            });
-            ranges.load("items");
-            await context.sync();
-            if (ranges.items.length === 1) {
-              inserted = ranges.items[0].insertText(
-                lastProposal.text,
-                "Replace",
-              );
-            } else {
-              throw new Error(
-                "Không thể xác định duy nhất đoạn văn bản gốc. Hãy chọn lại đoạn đó rồi hỏi lại Hermes.",
-              );
-            }
-          } else if (capturedSelectionText) {
-            // Too long to search for and the bookmark no longer matches it.
-            throw new Error(
-              "Đoạn văn bản gốc không còn được ghim. Hãy chọn lại đoạn cần thay rồi hỏi lại.",
-            );
-          } else {
-            throw new Error("Không có văn bản được chọn để áp dụng.");
-          }
-          if (markRed) inserted.font.color = "#FF0000";
-          // Re-pin the inserted text: replacing a bookmarked range removes the
-          // bookmark, so without this a follow-up "rewrite it again" in the
-          // same chat would have nothing pinned and fall back to stale text.
-          if (canUseBookmark) inserted.insertBookmark(PIN_BOOKMARK_NAME);
-          await context.sync();
-        });
-        // Selection proposal is complete. Do not let its bookmark affect the
-        // next Ask: with no new selection, next request must use full document.
-        pinnedSelectionText = "";
-        selectionIsPinned = false;
-        capturedSelectionText = "";
-        await clearSelectionBookmark();
+        stats = await mgr.applyText(lastProposal.text, { markRed });
+        // Text proposal complete — its bookmark was re-pinned on the new text
+        // by proposal-mgr, but the in-memory selection state is now stale.
+        await sel.clearPin();
       }
-      const n =
-        lastProposal.type === "table"
-          ? lastProposal.changes.length
-          : editStats
-            ? editStats.applied
-            : 1;
-      const skippedNote =
-        editStats && editStats.skipped > 0
-          ? ` (${editStats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
-          : "";
+
+      const n = lastProposal.type === "table" ? lastProposal.changes.length : stats.applied;
+      const skippedNote = stats.skipped > 0 ? ` (${stats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)` : "";
       addMsg("bot", `Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       showToast(`Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       lastProposal = null;
@@ -1028,38 +330,32 @@ ${data.text}`;
       addMsg("bot", errText, { tone: "err" });
       showToast(errText, { tone: "err", timeout: 6000 });
     } finally {
+      handle.end();
       busy = false;
       setBusyUi(applyBtn, false);
     }
   }
 
+  // ---- new chat ------------------------------------------------------------
   function newChat() {
-    // Refuse while a send/apply is in flight, otherwise the in-flight turn
-    // pushes its user+assistant pair into the history we just cleared.
     if (busy) return;
     messages = [];
     lastProposal = null;
-    capturedSelectionText = "";
-    // Cleared so a fresh chat never reuses a stale pinned selection; the
-    // next selectionChanged event (or an existing live selection) repins it.
-    pinnedSelectionText = "";
-    // Drop the pin bookmark from the document so a new chat starts clean.
-    clearSelectionBookmark();
+    sel.reset();
     log.innerHTML = "";
     if (emptyEl) emptyEl.classList.remove("is-hidden");
     preview.innerHTML = "";
     applyBtn.hidden = true;
     markRedWrap.hidden = true;
-    // Reset to checked so a new chat always starts from the predictable
-    // default rather than carrying over whatever the user last toggled.
     const markRedEl = document.getElementById("markRed");
     if (markRedEl) markRedEl.checked = true;
     setStatus("Cuộc trò chuyện mới. Chọn văn bản và yêu cầu Hermes chỉnh sửa.");
     refreshContextBar();
   }
 
-  registerSelectionChangedHandler();
-  onSelectionChangedHandler(); // prime pinnedSelectionText for a selection made before Office.onReady resolved
+  // ---- wiring --------------------------------------------------------------
+  sel.registerSelectionChanged(() => refreshContextBar());
+  sel.onSelectionChanged(); // prime for a selection made before Office.onReady
 
   askBtn.addEventListener("click", sendMessage);
   input.addEventListener("keydown", (e) => {

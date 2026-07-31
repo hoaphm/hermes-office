@@ -18,5 +18,13 @@ child.on("error", () => {
   console.error("Caddy not found. Install Caddy and add it to PATH.");
   process.exit(1);
 });
-process.on("SIGINT", () => child.kill("SIGINT"));
-process.on("SIGTERM", () => child.kill("SIGTERM"));
+let serverStopped = false;
+child.on("exit", (code) => {
+  if (!serverStopped) {
+    serverStopped = true;
+    if (code !== 0) console.error(`Caddy exited with code ${code}.`);
+    else console.log("Caddy stopped.");
+  }
+});
+process.on("SIGINT", () => { child.kill("SIGINT"); serverStopped = true; });
+process.on("SIGTERM", () => { child.kill("SIGTERM"); serverStopped = true; });
