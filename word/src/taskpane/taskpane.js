@@ -55,11 +55,22 @@ Office.onReady().then(() => {
     const chips = [];
     const pinned = sel.getPinnedText();
     if (pinned) {
-      chips.push({ label: "Pinned", value: pinned.slice(0, 60), state: "pinned" });
+      chips.push({
+        label: "Pinned",
+        value: pinned.slice(0, 60),
+        state: "pinned",
+      });
     }
-    if (extra && extra.snapshot) chips.push({ label: "Snapshot", value: extra.snapshot });
-    if (extra && extra.willTruncate) chips.push({ label: "⚠ Cắt bớt", value: extra.willTruncate, state: "warn" });
-    if (!chips.length) chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
+    if (extra && extra.snapshot)
+      chips.push({ label: "Snapshot", value: extra.snapshot });
+    if (extra && extra.willTruncate)
+      chips.push({
+        label: "⚠ Cắt bớt",
+        value: extra.willTruncate,
+        state: "warn",
+      });
+    if (!chips.length)
+      chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
     mountContextBar(contextHost, chips);
   }
   refreshContextBar();
@@ -90,7 +101,12 @@ Office.onReady().then(() => {
           .map((t, i) => {
             const flat = t.values
               .map((row, ri) => {
-                const cells = row.map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`).join("\n");
+                const cells = row
+                  .map(
+                    (cell, ci) =>
+                      `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`,
+                  )
+                  .join("\n");
                 return `Row ${ri + 1}:\n${cells}`;
               })
               .join("\n\n");
@@ -172,12 +188,19 @@ ${data.text}`;
       }
 
       if (selectionData.type === "multi-table") {
-        addMsg("bot", "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.", { tone: "warn" });
+        addMsg(
+          "bot",
+          "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.",
+          { tone: "warn" },
+        );
         setStatus("Cần chọn một bảng.", "warn");
         return;
       }
       if (selectionData.type === "empty") {
-        addMsg("bot", "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.");
+        addMsg(
+          "bot",
+          "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.",
+        );
         setStatus("Không có văn bản (doc trống / chưa sync xong). Thử lại.");
         return;
       }
@@ -185,7 +208,10 @@ ${data.text}`;
       // Bound full-document prompts.
       const displayData = { ...selectionData };
       let fullDocTruncated = false;
-      if (displayData.type === "fulldoc" && displayData.text.length > MAX_FULLDOC_CHARS) {
+      if (
+        displayData.type === "fulldoc" &&
+        displayData.text.length > MAX_FULLDOC_CHARS
+      ) {
         displayData.text = displayData.text.slice(0, MAX_FULLDOC_CHARS);
         fullDocTruncated = true;
       }
@@ -196,9 +222,17 @@ ${data.text}`;
           : selectionData.text
             ? `${selectionData.text.length} ký tự được chọn`
             : "Đã chọn bảng";
-      setStatus(statusText + (fullDocTruncated ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu` : ""));
+      setStatus(
+        statusText +
+          (fullDocTruncated
+            ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu`
+            : ""),
+      );
       if (fullDocTruncated) {
-        refreshContextBar({ snapshot: `Phân tích ${MAX_FULLDOC_CHARS}/${selectionData.text.length} ký tự đầu`, willTruncate: "Tài liệu dài" });
+        refreshContextBar({
+          snapshot: `Phân tích ${MAX_FULLDOC_CHARS}/${selectionData.text.length} ký tự đầu`,
+          willTruncate: "Tài liệu dài",
+        });
       }
 
       const sysPrompt = buildSystemPrompt(displayData);
@@ -231,13 +265,25 @@ ${data.text}`;
             type: "table",
             target,
             changes: tableChanges.map((change) => {
-              const pos = cellRefToPosition(change.cell, table.rowCount, table.columnCount);
-              return { ...change, old: pos ? table.values[pos.row][pos.col] : undefined };
+              const pos = cellRefToPosition(
+                change.cell,
+                table.rowCount,
+                table.columnCount,
+              );
+              return {
+                ...change,
+                old: pos ? table.values[pos.row][pos.col] : undefined,
+              };
             }),
           };
           renderProposalCard(preview, {
             title: "Cập nhật bảng đã chọn",
-            actions: lastProposal.changes.map((c) => ({ type: "setCell", cell: c.cell, old: c.old, new: c.value })),
+            actions: lastProposal.changes.map((c) => ({
+              type: "setCell",
+              cell: c.cell,
+              old: c.old,
+              new: c.value,
+            })),
           });
           applyBtn.hidden = false;
           markRedWrap.hidden = false;
@@ -257,7 +303,11 @@ ${data.text}`;
           lastProposal = { type: "fulldoc-edits", target, edits };
           renderProposalCard(preview, {
             title: "Sửa nhanh toàn văn bản",
-            actions: edits.map((e) => ({ type: "replace", find: e.find, replace: e.replace })),
+            actions: edits.map((e) => ({
+              type: "replace",
+              find: e.find,
+              replace: e.replace,
+            })),
           });
           applyBtn.hidden = false;
           markRedWrap.hidden = false;
@@ -278,7 +328,9 @@ ${data.text}`;
     } catch (err) {
       removeTypingIndicator(typingEl);
       typingEl = null;
-      addMsg("bot", (err.message || String(err)) + "\n" + (err.stack || ""), { tone: "err" });
+      addMsg("bot", (err.message || String(err)) + "\n" + (err.stack || ""), {
+        tone: "err",
+      });
       setStatus("Lỗi.", "err");
     } finally {
       handle.end();
@@ -301,7 +353,11 @@ ${data.text}`;
 
     const handle = sel.beginApply();
     try {
-      const mgr = createProposalMgr({ target: lastProposal.target, runWord: (fn) => Word.run(fn), showToast });
+      const mgr = createProposalMgr({
+        target: lastProposal.target,
+        runWord: (fn) => Word.run(fn),
+        showToast,
+      });
       let stats;
       if (lastProposal.type === "table") {
         stats = await mgr.applyTable(lastProposal.changes, { markRed });
@@ -314,8 +370,14 @@ ${data.text}`;
         await sel.clearPin();
       }
 
-      const n = lastProposal.type === "table" ? lastProposal.changes.length : stats.applied;
-      const skippedNote = stats.skipped > 0 ? ` (${stats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)` : "";
+      const n =
+        lastProposal.type === "table"
+          ? lastProposal.changes.length
+          : stats.applied;
+      const skippedNote =
+        stats.skipped > 0
+          ? ` (${stats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`
+          : "";
       addMsg("bot", `Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       showToast(`Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       lastProposal = null;

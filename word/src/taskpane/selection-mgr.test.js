@@ -13,7 +13,9 @@ function makeContext(state) {
         loadable({
           text: state.selectionText ?? "",
           tables: { items: state.tables ?? [] },
-          parentTable: loadable({ isNullObject: (state.tables ?? []).length === 0 }),
+          parentTable: loadable({
+            isNullObject: (state.tables ?? []).length === 0,
+          }),
           insertBookmark: () => {},
         }),
       getBookmarkRangeOrNullObject: () =>
@@ -44,7 +46,11 @@ test("gate: onSelectionChanged is a no-op while reading", async () => {
   await sel.onSelectionChanged(); // must be ignored
   handle.end();
 
-  assert.equal(runWordCalled, false, "runWord must not be called while reading");
+  assert.equal(
+    runWordCalled,
+    false,
+    "runWord must not be called while reading",
+  );
   assert.equal(sel.getPinnedText(), "", "pin must not change while reading");
 });
 
@@ -78,7 +84,11 @@ test("gate: focus-loss (empty selection) does not clear pin while reading", asyn
   await sel.onSelectionChanged(); // must be ignored (bug #3)
   handle.end();
 
-  assert.equal(sel.getPinnedText(), "pinned passage", "pin must survive focus-loss");
+  assert.equal(
+    sel.getPinnedText(),
+    "pinned passage",
+    "pin must survive focus-loss",
+  );
 });
 
 // ---- reconcile: document beats memory (bug #1) -----------------------------
@@ -101,7 +111,11 @@ test("reconcile: bookmark text wins over stale cached memory", async () => {
   const data = await sel.getSelectionData();
   handle.end();
 
-  assert.equal(sel.getPinnedText(), "edited text", "memory must follow the document");
+  assert.equal(
+    sel.getPinnedText(),
+    "edited text",
+    "memory must follow the document",
+  );
   assert.equal(data.type, "text");
   assert.equal(data.text, "edited text");
 });
@@ -142,7 +156,10 @@ test("captureTarget: text snapshot is frozen at Ask time", async () => {
 });
 
 test("captureTarget: table target carries a stable sig", async () => {
-  const cellTexts = [["a", "b"], ["c", "d"]];
+  const cellTexts = [
+    ["a", "b"],
+    ["c", "d"],
+  ];
   const table = {
     rowCount: 2,
     columnCount: 2,
@@ -168,7 +185,11 @@ test("captureTarget: table target carries a stable sig", async () => {
 });
 
 test("captureTarget: fulldoc target has kind fulldoc", async () => {
-  const state = { selectionText: "", bookmarkText: null, bodyText: "whole doc" };
+  const state = {
+    selectionText: "",
+    bookmarkText: null,
+    bodyText: "whole doc",
+  };
   const runWord = (fn) => fn(makeContext(state));
   const sel = createSelectionMgr({ runWord });
 
@@ -198,13 +219,43 @@ test("empty selection in idle clears the pin", async () => {
 });
 
 test("tableSignature is stable for identical contents", () => {
-  const t = { rowCount: 2, columnCount: 2, values: [["a", "b"], ["c", "d"]] };
-  assert.equal(tableSignature(t), tableSignature({ ...t, values: [["a", "b"], ["c", "d"]] }));
+  const t = {
+    rowCount: 2,
+    columnCount: 2,
+    values: [
+      ["a", "b"],
+      ["c", "d"],
+    ],
+  };
+  assert.equal(
+    tableSignature(t),
+    tableSignature({
+      ...t,
+      values: [
+        ["a", "b"],
+        ["c", "d"],
+      ],
+    }),
+  );
 });
 
 test("tableSignature differs when contents differ", () => {
-  const a = { rowCount: 2, columnCount: 2, values: [["a", "b"], ["c", "d"]] };
-  const b = { rowCount: 2, columnCount: 2, values: [["a", "b"], ["c", "X"]] };
+  const a = {
+    rowCount: 2,
+    columnCount: 2,
+    values: [
+      ["a", "b"],
+      ["c", "d"],
+    ],
+  };
+  const b = {
+    rowCount: 2,
+    columnCount: 2,
+    values: [
+      ["a", "b"],
+      ["c", "X"],
+    ],
+  };
   assert.notEqual(tableSignature(a), tableSignature(b));
 });
 
@@ -221,14 +272,7 @@ test("reset clears pin and returns activity to idle", async () => {
   await sel.reset();
   assert.equal(sel.getPinnedText(), "");
 
-  // After reset, onSelectionChanged works again (activity is idle).
-  let called = false;
-  const runWord2 = (fn) => {
-    called = true;
-    return fn(makeContext({ selectionText: "new" }));
-  };
-  // Re-create to use runWord2 — reset only clears state, not the runWord dep.
-  // Instead, verify the gate is open by checking that a new selection pins.
+  // After reset the activity gate is open again, so a new selection pins.
   state.selectionText = "new text";
   await sel.onSelectionChanged();
   assert.equal(sel.getPinnedText(), "new text");

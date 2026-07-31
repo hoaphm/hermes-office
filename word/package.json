@@ -14,7 +14,7 @@
   "scripts": {
     "build": "webpack --mode production",
     "lint": "office-addin-lint check",
-    "lint:fix": "office-addin-lint fix",
+    "lint:fix": "office-addin-lint fix --files \"src/**/*.js\"",
     "start": "office-addin-debugging start manifest.xml",
     "stop": "office-addin-debugging stop manifest.xml"
   },

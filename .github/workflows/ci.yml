@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 18 is the floor the install scripts enforce; 22 is what .nvmrc pins.
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --prefix word
+      - run: npm ci --prefix excel
+      - run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --prefix word
+      - run: npm ci --prefix excel
+      - run: npm run build
+      # The add-ins must never ship a credential: the key belongs in the
+      # Caddyfile, which is git-ignored and never bundled (ADR-0002).
+      - name: assert no credential in the built bundles
+        run: |
+          if grep -rIl -e 'Bearer ' -e 'apiKey' word/dist excel/dist; then
+            echo "::error::a credential-shaped string reached the built bundles"
+            exit 1
+          fi

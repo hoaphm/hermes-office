@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createProposalMgr, hasChainedEdits, cellRefToPosition } from "./proposal-mgr.js";
+import {
+  createProposalMgr,
+  hasChainedEdits,
+  cellRefToPosition,
+} from "./proposal-mgr.js";
 
 function makeContext(state = {}) {
   const loadable = (props) => ({ ...props, load: () => {} });
@@ -72,7 +76,10 @@ test("applyTable rejects when no table matches the target sig", async () => {
     runWord,
   });
   await assert.rejects(
-    () => mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], { markRed: false }),
+    () =>
+      mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], {
+        markRed: false,
+      }),
     /Không còn tìm thấy bảng/,
   );
 });
@@ -124,7 +131,9 @@ test("applyFulldocEdits marks red when requested", async () => {
   const searchItem = { insertText: () => inserted };
   const runWord = (fn) => fn(makeContext({ searchItems: [searchItem] }));
   const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
-  await mgr.applyFulldocEdits([{ find: "old", replace: "new" }], { markRed: true });
+  await mgr.applyFulldocEdits([{ find: "old", replace: "new" }], {
+    markRed: true,
+  });
   assert.equal(inserted.font.color, "#FF0000");
 });
 

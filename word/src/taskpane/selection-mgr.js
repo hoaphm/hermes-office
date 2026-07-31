@@ -199,7 +199,10 @@ export function createSelectionMgr({ runWord }) {
         const sel = context.document.getSelection();
         sel.load("text");
         await context.sync();
-        if (!bmRange.isNullObject && (bmRange.text || "").trim() === expectedText)
+        if (
+          !bmRange.isNullObject &&
+          (bmRange.text || "").trim() === expectedText
+        )
           return;
         let target = null;
         if ((sel.text || "").trim() === expectedText) {
@@ -311,7 +314,11 @@ export function createSelectionMgr({ runWord }) {
       const values = rangeRows.map((rangeRow) =>
         rangeRow.map((range) => (range.text || "").trim()),
       );
-      rows.push({ rowCount: table.rowCount, columnCount: table.columnCount, values });
+      rows.push({
+        rowCount: table.rowCount,
+        columnCount: table.columnCount,
+        values,
+      });
     }
     return rows;
   }
@@ -384,7 +391,11 @@ export function createSelectionMgr({ runWord }) {
       effectiveSelText = selText;
     } else if (selText.length > 0) {
       effectiveSelText = selText;
-    } else if (selectionIsPinned && pinnedFromBookmark && pinnedFromBookmark.length > 0) {
+    } else if (
+      selectionIsPinned &&
+      pinnedFromBookmark &&
+      pinnedFromBookmark.length > 0
+    ) {
       // Live selection empty but a valid pin exists (focus left the doc).
       effectiveSelText = pinnedFromBookmark;
     } else if (selectionIsPinned && pinnedText.trim().length > 0) {
@@ -397,7 +408,11 @@ export function createSelectionMgr({ runWord }) {
     if (effectiveSelText.length > 0) {
       capturedText = effectiveSelText;
       targetKind = "text";
-      return { type: "text", text: effectiveSelText, capturedText: effectiveSelText };
+      return {
+        type: "text",
+        text: effectiveSelText,
+        capturedText: effectiveSelText,
+      };
     }
 
     // Nothing selected → operate on the whole open document.
@@ -422,7 +437,11 @@ export function createSelectionMgr({ runWord }) {
       return { kind: "text", text: capturedText };
     }
     if (selectionData.type === "table") {
-      return { kind: "table", sig: tableSignature(selectionData.tables[0]), table: selectionData.tables[0] };
+      return {
+        kind: "table",
+        sig: tableSignature(selectionData.tables[0]),
+        table: selectionData.tables[0],
+      };
     }
     return { kind: "fulldoc" };
   }
