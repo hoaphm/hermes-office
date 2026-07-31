@@ -78,11 +78,37 @@ tiến trình trên máy đều đọc được và nó lọt vào lịch sử s
 Excel có thêm các hàm gọi thẳng từ ô, không qua task pane: `=HERMES.CLASSIFY`,
 `=HERMES.EXTRACT`, `=HERMES.SUMMARIZE`, `=HERMES.FORMULA_HELP`.
 
+## Chạy Gateway tự động (tùy chọn, macOS)
+
+Nếu không muốn mở terminal mỗi lần dùng add-in, bạn có thể để `launchd` giữ
+Gateway chạy sẵn bằng một LaunchAgent ở `~/Library/LaunchAgents/com.hermes.caddy.plist`
+với `RunAtLoad` + `KeepAlive`. Repo không tạo file này; bạn tự tạo.
+
+Khi có LaunchAgent, cách vận hành đổi khác — đọc kỹ:
+
+| Việc | Lệnh |
+|------|------|
+| Nạp lại sau khi sửa `Caddyfile` | `launchctl kickstart -k gui/$(id -u)/com.hermes.caddy` |
+| Dừng hẳn (tới lần đăng nhập sau) | `launchctl bootout gui/$(id -u)/com.hermes.caddy` |
+| Xem log | `~/.hermes/logs/caddy.error.log` |
+
+- `npm run setup` **tự kickstart** job sau khi ghi `Caddyfile`. Không có bước này
+  thì đổi Provider/khóa/model xong vẫn chạy cấu hình cũ: caddy giữ Caddyfile
+  trong bộ nhớ, không đọc lại từ đĩa.
+- `npm run serve` phát hiện cổng đã bị chiếm và **không** dựng instance thứ hai.
+  Hai caddy cùng bind một cổng thì request bị chia cho cả hai — cái cũ vẫn chạy
+  config cũ, triệu chứng là 401 lúc có lúc không.
+- `npm run stop` chỉ bảo tiến trình thoát; `KeepAlive` bật lại ngay. Script sẽ
+  kiểm tra lại và nói thẳng điều đó thay vì báo "đã dừng".
+
 ## Gỡ cài đặt
 
 ```bash
 npm run stop     # dừng Local Gateway
 ```
+
+Nếu dùng LaunchAgent thì `launchctl bootout gui/$(id -u)/com.hermes.caddy`, và xóa
+`~/Library/LaunchAgents/com.hermes.caddy.plist` nếu muốn bỏ hẳn.
 
 Xóa add-in trong Office qua **Home → Get Add-ins → Manage My Add-ins → Delete**.
 Xóa `Caddyfile` để gỡ khóa API khỏi máy.
@@ -100,6 +126,10 @@ quota của bạn. Nó không lấy được khóa để mang đi nơi khác, nh
 Provider của bạn. Nên:
 
 - Chỉ chạy `npm run serve` khi đang thực sự dùng add-in; xong thì `npm run stop`.
+- **Nếu bạn bật LaunchAgent tự chạy, biện pháp trên không còn**: Gateway lên từ
+  lúc đăng nhập và tự bật lại khi bị dừng, tức là cửa sổ phơi nhiễm là toàn bộ
+  phiên làm việc. Đó là đánh đổi có ý thức giữa tiện lợi và rủi ro — nếu không
+  chấp nhận được, đừng cài LaunchAgent và chạy `npm run serve` thủ công.
 - Đừng để nó chạy trên máy dùng chung hay máy không tin cậy.
 - `Caddyfile` và `config.json` đều đã git-ignored. Đừng commit, đừng gửi cho ai.
 

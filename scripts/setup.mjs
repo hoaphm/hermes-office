@@ -11,6 +11,7 @@ import { createInterface } from "readline";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { hasLaunchAgent, restartLaunchAgent, kickstartCommand } from "./gateway.mjs";
 
 const MIN_NODE_MAJOR = 18;
 const MARKER_START = "# >>> hermes-proxy >>>";
@@ -180,10 +181,27 @@ async function main() {
     `\n${created ? "Đã tạo" : "Đã cập nhật khối proxy trong"} ${caddyfilePath}`,
   );
   console.log(`Đã ghi ${configPath} — model "${model}", không chứa khóa.`);
+
+  // A running Gateway holds the Caddyfile in memory, so without this the new
+  // Provider or key silently has no effect until the process is restarted.
+  if (hasLaunchAgent()) {
+    const result = await restartLaunchAgent();
+    if (result.ok) {
+      console.log("Đã khởi động lại Local Gateway (LaunchAgent) để nạp cấu hình mới.");
+    } else {
+      console.log(
+        `\n⚠ Không khởi động lại được LaunchAgent (${result.reason || "không rõ"}).\n` +
+          `  Cấu hình mới CHƯA có hiệu lực. Chạy tay:  ${kickstartCommand()}`,
+      );
+    }
+  }
+
   console.log(
     "\nTiếp theo:\n" +
       "  1. Build add-in:        npm run build\n" +
-      "  2. Chạy Local Gateway:  npm run serve\n" +
+      (hasLaunchAgent()
+        ? "  2. Gateway do LaunchAgent chạy sẵn — không cần npm run serve\n"
+        : "  2. Chạy Local Gateway:  npm run serve\n") +
       "  3. Sideload manifest trong Word/Excel (Home → Manage Add-ins)\n",
   );
   closeInput();

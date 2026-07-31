@@ -13,6 +13,9 @@ request. `config.json` is reduced to `{name, model}` and holds no secret at all.
   `:8643/v1/*` anonymously and spend quota. That is strictly better than the
   alternative, where the same process could steal the key itself.
 - Stop the Local Gateway when not using the add-ins (`npm run stop`), and do not
-  leave it running on a shared host.
+  leave it running on a shared host. Note that this mitigation disappears
+  entirely when the Gateway is supervised by an always-on launchd job — the
+  exposure window becomes the whole login session. Running it that way is a
+  choice to accept the wider window in exchange for convenience.
 - Do not "simplify" by moving the key back into `config.json`. Serving it is the
   exposure.
