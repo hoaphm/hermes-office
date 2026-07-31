@@ -82,7 +82,20 @@ Excel có thêm các hàm gọi thẳng từ ô, không qua task pane: `=HERMES.
 
 Nếu không muốn mở terminal mỗi lần dùng add-in, bạn có thể để `launchd` giữ
 Gateway chạy sẵn bằng một LaunchAgent ở `~/Library/LaunchAgents/com.hermes.caddy.plist`
-với `RunAtLoad` + `KeepAlive`. Repo không tạo file này; bạn tự tạo.
+với `RunAtLoad` + `KeepAlive`.
+
+`scripts/install.sh` sẽ **hỏi** có bật hay không, **mặc định là Không** — vì đánh
+đổi bảo mật bên dưới. Bật/tắt bất cứ lúc nào:
+
+```bash
+node scripts/launchagent.mjs --install   # cài và nạp ngay
+node scripts/launchagent.mjs --remove    # gỡ hẳn
+```
+
+Cài không cần hỏi (dùng khi triển khai hàng loạt): đặt `HERMES_AUTOSTART=1` hoặc
+`HERMES_AUTOSTART=0` trước khi chạy `install.sh`. Nếu plist đã tồn tại, script
+giữ nguyên file của bạn trừ khi thêm `--force`. Windows chưa có cơ chế tương
+đương — `install.ps1` không cài tự khởi động.
 
 Khi có LaunchAgent, cách vận hành đổi khác — đọc kỹ:
 
