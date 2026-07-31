@@ -1,6 +1,4 @@
 {
-  "name": "OpenAI",
-  "baseUrl": "https://api.openai.com/v1",
-  "apiKey": "sk-replace-me",
+  "name": "api.openai.com",
   "model": "gpt-4o-mini"
 }

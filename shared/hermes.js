@@ -1,6 +1,10 @@
 /* global fetch, setTimeout, clearTimeout */
-// Shared OpenAI-compatible API client for Word and Excel add-ins.
-// Provider config is served as /config.json alongside each production bundle.
+// Shared chat client for Word and Excel add-ins.
+//
+// Every call goes to the Local Gateway (the Caddy instance serving this bundle)
+// at same-origin /v1/chat/completions — never to the Provider directly. The
+// Gateway holds the API key and forwards upstream, so nothing here authenticates
+// and no Authorization header is sent. See docs/adr/0001 and 0002.
 
 const DEFAULT_TIMEOUT_MS = 60000;
 let cachedConfig;
@@ -28,18 +32,21 @@ function fetchWithTimeout(url, init, timeoutMs) {
   return Promise.race([fetch(url, init), timer]).finally(() => clearTimeout(id));
 }
 
+// Word for Mac's WKWebView rejects a root-relative fetch("/…") with "The string
+// did not match the expected pattern". Resolve against the add-in's own origin
+// instead — which is the Local Gateway, since it served this bundle.
+function gatewayUrl(path) {
+  return typeof window === "undefined"
+    ? path
+    : new URL(path, window.location.href).href;
+}
+
 async function loadConfig() {
   if (cachedConfig) return cachedConfig;
   let data;
   let configUrl;
   try {
-    // Word for Mac's WKWebView rejects fetch("/config.json") with
-    // "The string did not match the expected pattern". Resolve it explicitly
-    // against the add-in's current HTTPS origin instead.
-    configUrl =
-      typeof window === "undefined"
-        ? "/config.json"
-        : new URL("/config.json", window.location.href).href;
+    configUrl = gatewayUrl("/config.json");
   } catch (err) {
     throw new Error(`[config-url] ${err.message || err}`);
   }
@@ -50,13 +57,11 @@ async function loadConfig() {
   } catch (err) {
     throw new Error(`[config-fetch:${configUrl}] ${err.message || err}`);
   }
-  const baseUrl = String(data.baseUrl || "").replace(/\/+$/, "");
-  const apiKey = String(data.apiKey || "");
   const model = String(data.model || "");
-  if (!/^https:\/\//i.test(baseUrl) || !apiKey || !model) {
-    throw new Error("config.json cần có baseUrl HTTPS, apiKey, model.");
+  if (!model) {
+    throw new Error("config.json cần có model. Chạy: npm run setup");
   }
-  cachedConfig = { baseUrl, apiKey, model };
+  cachedConfig = { model };
   return cachedConfig;
 }
 
@@ -68,13 +73,11 @@ export async function callApi(
   try {
     const config = await loadConfig();
     phase = "build-headers";
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    };
+    // No Authorization: the Local Gateway attaches the key on the way upstream.
+    const headers = { "Content-Type": "application/json" };
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
     phase = "build-url";
-    const url = `${config.baseUrl}/chat/completions`;
+    const url = gatewayUrl("/v1/chat/completions");
     phase = "fetch";
     const res = await fetchWithTimeout(
       url,
