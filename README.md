@@ -1,181 +1,162 @@
 # Hermes for Office
 
-Microsoft Word + Excel add-ins that call any OpenAI-compatible LLM API directly. No Hermes server, account, or backend required.
+Add-in cho Microsoft Word và Excel: chat với một LLM về tài liệu đang mở, xem trước
+đề xuất thay đổi, và chỉ ghi vào tài liệu khi bạn bấm **Áp dụng**.
 
-Supported providers include OpenAI, OpenRouter, Azure OpenAI, and any provider exposing `/v1/chat/completions`.
+Dùng được với mọi API tương thích OpenAI — OpenAI, OpenRouter, Azure OpenAI, hoặc
+router bạn tự host.
 
 ```
-Office add-in ──HTTPS──▶ Caddy (:8643, local static server) ──HTTPS──▶ provider /v1/chat/completions
+Word / Excel add-in ──▶ Local Gateway (Caddy, localhost:8643) ──▶ Provider /chat/completions
 ```
 
-The add-in reads provider config from local `/config.json`, then calls provider directly. Caddy only serves bundles and config; it does not proxy or inject API keys.
+**Local Gateway** là Caddy chạy trên máy bạn. Nó vừa phục vụ bundle add-in, vừa
+chuyển tiếp mọi lời gọi lên **Provider** kèm khóa API. Add-in không bao giờ gọi
+thẳng Provider và không giữ khóa nào cả — xem [ADR-0001](./docs/adr/0001-local-gateway-is-the-only-path-to-the-provider.md)
+và [ADR-0002](./docs/adr/0002-the-api-key-lives-in-the-caddyfile.md).
 
-`config.json` is git-ignored. Never share it or commit it.
+| Ứng dụng | Trạng thái | Thư mục |
+|----------|------------|---------|
+| Word — chat trong task pane + sửa tài liệu bằng AI | ✅ dùng được | [`word/`](./word) |
+| Excel — chat trong task pane + hàm `=HERMES.*` | ✅ dùng được | [`excel/`](./excel) |
 
-## Apps
+## Cài đặt
 
-| App | Status | Folder |
-|-----|--------|--------|
-| Word — task-pane chat + AI document editing | ✅ available | [`word/`](./word) |
-| Excel — task-pane chat + `=HERMES.*` custom functions | ✅ available | [`excel/`](./excel) |
-
-Each app is a self-contained Office.js add-in with its own `package.json`, webpack build, and manifest. They share provider client code in [`shared/`](./shared).
-
-## Install on Windows or macOS
-
-Requirements: Microsoft 365 desktop, Node.js 18+, and Caddy (HTTPS static server).
-
-1. Clone or extract project.
-2. Run setup:
+Cần: Microsoft 365 bản desktop, Node.js 18+, và [Caddy](https://caddyserver.com/docs/install).
 
 ```bash
 # macOS
 bash scripts/install.sh
 # Windows PowerShell
-.\\scripts\\install.ps1
+.\scripts\install.ps1
 ```
 
-3. Enter provider base URL, API key, and model when prompted. Setup writes `config.json` to project root and both `dist/` folders.
-4. Start server:
+Script sẽ build add-in rồi hỏi ba thứ:
+
+| Hỏi | Ví dụ | Ghi vào đâu |
+|-----|-------|-------------|
+| URL Provider | `https://openrouter.ai/api/v1` | `Caddyfile` |
+| Khóa API | `sk-…` | `Caddyfile` (chmod 600, git-ignored) |
+| Tên model | `anthropic/claude-sonnet-4` | `config.json` |
+
+Tên model được giữ **nguyên văn** — nhập đúng như Provider của bạn gọi nó.
+
+Sau đó chạy Local Gateway và để nguyên cửa sổ đó:
 
 ```bash
 npm run serve
 ```
 
-5. Sideload both manifests in Word/Excel: **Home → Get Add-ins → Manage My Add-ins → Upload My Add-in → Upload a custom add-in → manifest.xml**.
+Cuối cùng sideload manifest trong Word và Excel: **Home → Get Add-ins → Manage My
+Add-ins → Upload My Add-in**, chọn `word/dist/manifest.xml` cho Word và
+`excel/dist/manifest.xml` cho Excel.
 
-Use `word/dist/manifest.xml` in Word and `excel/dist/manifest.xml` in Excel. Keep `npm run serve` running while using add-ins.
+Đổi Provider, khóa hay model về sau: chạy lại `npm run setup`. Nó chỉ ghi đè khối
+giữa hai dòng mốc `# >>> hermes-proxy >>>` trong `Caddyfile`, nên các chỉnh tay
+khác của bạn trong file đó vẫn còn.
 
-Provider config schema:
-
-```json
-{
-  "name": "OpenAI",
-  "baseUrl": "https://api.openai.com/v1",
-  "apiKey": "sk-...",
-  "model": "gpt-4o-mini"
-}
-```
-
-`apiKey` is stored in plaintext local `config.json` because Office WebView cannot read arbitrary files. Protect this file and never commit it. `config.json` is git-ignored.
-## Uninstall
-
-Stop server with `npm run stop`. Remove manifests from Office via **Home → Get Add-ins → Manage My Add-ins → Delete**. Delete `config.json` to remove provider credentials.
-
-For development, use each app's existing `npm run dev-server` and `npm start` scripts.
-
-## Repo-root convenience scripts
+Cài phi tương tác (script, cài lại hàng loạt):
 
 ```bash
-npm run build   # builds word/ then excel/
-npm run setup   # configure provider
-npm run serve   # serve built add-ins over local HTTPS
-npm test        # shared node:test suite
-npm run lint    # lint both add-ins
+HERMES_API_KEY=sk-… node scripts/setup.mjs \
+  --provider=https://openrouter.ai/api/v1 --model=anthropic/claude-sonnet-4
 ```
 
-Legacy `npm start` flows are development-only and still require their original dev proxy setup.
+Khóa chỉ truyền qua biến môi trường, không qua tham số dòng lệnh — argv thì mọi
+tiến trình trên máy đều đọc được và nó lọt vào lịch sử shell.
 
-## How it works
+## Cách hoạt động
 
-1. Task pane reads document/workbook content and typed prompt.
-2. `shared/hermes.js` loads `/config.json`, then POSTs conversation to `${baseUrl}/chat/completions` with configured model and bearer key.
-3. Reply is parsed into structured edit proposal and shown for approval.
-4. Office.js applies edits only after user clicks **Apply**.
+1. Task pane đọc phần bạn đang chọn (hoặc bảng, hoặc cả tài liệu/sheet) cùng câu
+   bạn gõ, gói lại thành một **Snapshot** có giới hạn kích thước.
+2. Gửi hội thoại tới Local Gateway; Gateway chuyển tiếp lên Provider kèm khóa.
+3. Câu trả lời được tách thành phần văn xuôi và một **Proposal** — tập thay đổi
+   được hiển thị thành thẻ. Lúc này chưa có gì được ghi vào tài liệu.
+4. Bấm **Áp dụng** thì Office.js mới thực thi. Word có thể tô đỏ phần vừa sửa để
+   bạn thấy ngay chỗ nào do AI thay đổi.
 
-Excel exposes `=HERMES.CLASSIFY`, `=HERMES.EXTRACT`, `=HERMES.SUMMARIZE`, and `=HERMES.FORMULA_HELP` custom functions.
+Excel có thêm các hàm gọi thẳng từ ô, không qua task pane: `=HERMES.CLASSIFY`,
+`=HERMES.EXTRACT`, `=HERMES.SUMMARIZE`, `=HERMES.FORMULA_HELP`.
 
-## Security
+## Gỡ cài đặt
 
-API key lives in plaintext local `config.json` because Office WebView cannot read arbitrary local files. Protect the file, do not share it, and never commit it. Use HTTPS provider URLs. Add-in sends document content and API key directly to configured provider.
+```bash
+npm run stop     # dừng Local Gateway
+```
+
+Xóa add-in trong Office qua **Home → Get Add-ins → Manage My Add-ins → Delete**.
+Xóa `Caddyfile` để gỡ khóa API khỏi máy.
+
+## Bảo mật
+
+**Khóa API nằm trong `Caddyfile`, không nằm trong `config.json`.** `config.json`
+được Gateway phục vụ qua HTTP nên bất kỳ tiến trình nào trên máy cũng đọc được;
+vì vậy nó chỉ chứa `{name, model}`. `Caddyfile` không bao giờ được phục vụ, được
+git-ignore, và đặt quyền 600.
+
+Đánh đổi đi kèm, cần biết rõ: **trong lúc Gateway đang chạy, mọi tiến trình local
+đều có thể POST tới `https://localhost:8643/v1/*` mà không cần khóa** và tiêu
+quota của bạn. Nó không lấy được khóa để mang đi nơi khác, nhưng nó dùng được
+Provider của bạn. Nên:
+
+- Chỉ chạy `npm run serve` khi đang thực sự dùng add-in; xong thì `npm run stop`.
+- Đừng để nó chạy trên máy dùng chung hay máy không tin cậy.
+- `Caddyfile` và `config.json` đều đã git-ignored. Đừng commit, đừng gửi cho ai.
+
+Local Gateway cố tình **không** đặt header `Access-Control-Allow-Origin`. Task
+pane cùng origin với nó nên không cần CORS; thêm wildcard vào sẽ cho phép bất kỳ
+trang web nào mở trong trình duyệt trên máy này điều khiển Provider của bạn.
 
 ### Prompt injection
 
-Document/workbook content is untrusted input. Nothing is written without user approval; Excel forces model-proposed formula-like values to literal text.
+Nội dung tài liệu và bảng tính là **đầu vào không đáng tin** — chữ trong file bạn
+mở có thể tác động đến điều model đề xuất. Hai lớp phòng vệ, cả hai đều quan trọng:
 
-## License
+- **Không gì được ghi khi bạn chưa duyệt.** Mọi thay đổi đều hiện thành thẻ và chỉ
+  chạy khi bấm Áp dụng. Hãy đọc thẻ — đó chính là ranh giới bảo mật.
+- **Excel không bao giờ áp dụng giá trị model đề xuất thành công thức sống.** Chuỗi
+  bắt đầu bằng `=`, `+`, `-` hoặc `@` bị ép thành text (`literalCellValue` trong
+  [`excel/src/taskpane/actions.js`](./excel/src/taskpane/actions.js)), nên một
+  `=WEBSERVICE(...)` được cấy vào không thể biến thành kênh rò rỉ dữ liệu.
 
-MIT — see [LICENSE](./LICENSE).
+## Phát triển
 
-## Project layout
-
-See `word/`, `excel/`, `shared/`, `scripts/`, `config.example.json`, and `Caddyfile`.
-
-There is no npm workspace between add-ins; shared helpers are imported through relative paths.
-
-## Notes
-
-Native signed MSIX/pkg installers are not included. Package contains local sideload scripts; platform signing requires publisher certificates.
-### Repo-root convenience scripts
-
-From the repo root, `package.json` wraps both apps:
-```
-npm run build   # builds word/ then excel/
-npm test        # runs the shared node:test suite (shared/*.test.js)
-npm run lint    # lints word/ then excel/ (office-addin-lint)
+```bash
+npm test         # bộ test node:test (không cần cài dependency)
+npm run lint     # lint cả hai add-in
+npm run build    # build word/ rồi excel/
+npm run setup    # cấu hình lại Provider
+npm run serve    # chạy Local Gateway
+npm run stop     # dừng Local Gateway
 ```
 
-## How it works
+Cần Node 18+ (`.nvmrc` ghim 22). CI chạy test trên 18/20/22, lint, build, và kiểm
+tra rằng bundle build ra không chứa chuỗi nào giống khóa API.
 
-1. The task pane reads the current selection (or table, or whole document/sheet) plus your typed prompt.
-2. It sends the conversation to Hermes via `askHermes()` (in [`shared/hermes.js`](./shared/hermes.js)), which POSTs to `https://localhost:8643/v1/chat/completions` with a 60s timeout and one retry on timeout/network failure.
-3. Hermes' reply is parsed for a structured edit proposal (`parseEdits` / `parseTableChanges` in [`shared/parsers.js`](./shared/parsers.js)) and shown as a preview — nothing is written to the document/sheet until you click **Apply**.
-4. On Apply, the add-in applies the edits via Office.js (`Word.run` / `Excel.run`). Word can optionally mark applied edits in red so you can spot AI changes at a glance.
+Từ vựng dùng chung trong code và tài liệu nằm ở [`CONTEXT.md`](./CONTEXT.md);
+các quyết định kiến trúc nằm ở [`docs/adr/`](./docs/adr).
 
-Excel additionally exposes read-only, cacheable, drag-fillable custom functions — `=HERMES.CLASSIFY`, `=HERMES.EXTRACT`, `=HERMES.SUMMARIZE`, `=HERMES.FORMULA_HELP` — that call the agent directly from a cell, independent of the task pane.
-
-## Project layout
+## Bố cục repo
 
 ```
 hermes-office/
-├── word/                 # Hermes for Word add-in (Office.js, webpack)
-│   ├── src/
-│   │   ├── taskpane/      # chat UI + document editing logic
-│   │   ├── commands/      # ribbon command functions
-│   │   └── shared/        # re-exports ../../shared/hermes.js
-│   ├── manifest.xml
-│   └── package.json
-├── excel/                # Hermes for Excel add-in (Office.js, webpack)
-│   ├── src/
-│   │   ├── taskpane/      # chat UI + sheet editing logic
-│   │   ├── functions/     # =HERMES.* custom functions
-│   │   ├── commands/       # ribbon command functions
-│   │   └── shared/         # re-exports ../../shared/hermes.js
-│   ├── manifest.xml
-│   └── package.json
-├── shared/                # helpers imported by both apps via relative paths
-│   ├── hermes.js           # askHermes client (timeout + retry)
-│   └── parsers.js          # column conversion, edit/table-edit parsing, etc.
-├── Caddyfile.example      # copy to Caddyfile (git-ignored) and fill in your key
-└── package.json           # repo-root build/test/lint wrapper scripts
+├── word/                 # add-in Word (Office.js, webpack)
+│   └── src/taskpane/      # chat UI, selection-mgr, proposal-mgr
+├── excel/                # add-in Excel
+│   └── src/taskpane/      # chat UI, actions.js (parse + literalise)
+├── shared/                # code dùng chung, import bằng đường dẫn tương đối
+│   ├── hermes.js           # client gọi Local Gateway (timeout + 1 lần thử lại)
+│   ├── parsers.js          # chuyển đổi cột, tách JSON, chữ ký snapshot
+│   └── proposal-card.js    # UI thẻ đề xuất, toast, thanh ngữ cảnh
+├── scripts/               # setup / serve / stop / install
+├── Caddyfile.example      # mẫu Local Gateway; setup.mjs sinh ra Caddyfile
+└── config.example.json    # mẫu {name, model}
 ```
 
-There is no npm workspace between the two add-ins (nothing is published to a registry); `shared/` is deduped purely via relative imports (`word/src/shared/hermes.js` and `excel/src/shared/hermes.js` both do `export * from "../../../shared/hermes.js"`).
+Hai add-in không nằm trong npm workspace; `shared/` được dùng chung thuần bằng
+import tương đối (`word/src/shared/hermes.js` và `excel/src/shared/hermes.js` đều
+`export * from "../../../shared/hermes.js"`).
 
-## Security
+## Giấy phép
 
-⚠️ The API Server gives the agent's **full toolset, including terminal commands**. Treat `API_SERVER_KEY` like a password:
-- Long and random; **never commit** your real `Caddyfile` or `.env` (both are git-ignored).
-- Bind everything to `localhost`; keep `API_SERVER_CORS_ORIGINS` narrow.
-- No add-in ever holds the key — Caddy injects it.
-
-### What the Caddy hop does and does not protect
-
-Keeping the key out of the add-in bundle solves a *distribution* problem: the secret never lands in git, in `dist/`, or in a manifest you might share. It is **not** an access control.
-
-Caddy injects the `Authorization` header for **every** request that reaches `:8643/v1/*`, without authenticating the caller. So on a machine running this setup, any local process — another app, a shell one-liner, an npm `postinstall` script — can `curl https://localhost:8643/v1/chat/completions` and drive the full agent, tools and all, without ever seeing the key. The browser same-origin policy stops *other web pages* from reading responses (the CORS snippet only allows `https://localhost:8643`), but it stops nothing running outside a browser.
-
-Practical consequences:
-- Run `caddy` only while you are actually using the add-ins; stop it when you're done.
-- Treat a machine with this running as one where any local code has agent-level privileges. Don't leave it up on a shared or untrusted host.
-- The threat this design defends against is *leaking the key*, not *someone local using the agent*.
-
-### Prompt injection
-
-Both panes send document/workbook content to the agent, so text inside a file you open is untrusted input that can influence what the model proposes. Two mitigations are in place, and both matter:
-- **Nothing is written without your approval** — every change is rendered as a proposal card and applied only when you click Apply. Read the card; it is the security boundary.
-- **Excel never applies a model-proposed value as a live formula.** Strings starting with `=`, `+`, `-`, or `@` are forced to literal text (`literalCellValue` in `excel/src/taskpane/taskpane.js`), so an injected `=WEBSERVICE(...)` cannot turn into an exfiltration channel on Apply.
-
-## License
-
-MIT — see [LICENSE](./LICENSE).
+MIT — xem [LICENSE](./LICENSE).
