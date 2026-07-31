@@ -2,7 +2,17 @@
 import { askHermes } from "../shared/hermes";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
-import { signature, resolveRange, chartType, extractJsonObject } from "../../../shared/parsers.js";
+import { signature, resolveRange, chartType } from "../../../shared/parsers.js";
+// Reply parsing, action descriptions and cell-value literalisation live in a
+// pure module so they can be tested without Office.js — see actions.test.js.
+import {
+  MAX_ACTIONS,
+  literalCellValue,
+  literalizeGrid,
+  splitReply,
+  describe,
+  tableName,
+} from "./actions.js";
 // UI helpers (proposal card, toast, context bar) live in shared/proposal-card.js
 // so both add-ins get the same design system + a11y treatment.
 import {
@@ -170,7 +180,7 @@ async function ask() {
 
     const { prose, actions } = splitReply(raw);
     addBubble("bot", prose);
-    if (actions.length > 100) {
+    if (actions.length > MAX_ACTIONS) {
       pendingActions = [];
       addBubble(
         "bot",
@@ -306,54 +316,7 @@ function dataNote(s) {
   return head;
 }
 
-// ---- parsing the agent's reply ---------------------------------------------
-
-function splitReply(raw) {
-  let actions = [];
-  let prose = raw;
-  const fenced = raw.match(/```json\s*([\s\S]*?)```/i);
-  // Unfenced fallback: brace-balanced extraction rather than a greedy
-  // /\{[\s\S]*"actions"[\s\S]*\}/, which swallowed everything from the first
-  // `{` in the prose to the last `}` in the reply and then failed to parse.
-  const target = fenced ? fenced[1] : extractJsonObject(raw, "actions");
-  if (target) {
-    try {
-      const obj = JSON.parse(target);
-      actions =
-        obj.actions || (obj.editPlan ? obj.editPlan.map((e) => ({ type: "setCell", ...e })) : []);
-    } catch {
-      /* leave actions empty */
-    }
-    prose = raw.replace(fenced ? fenced[0] : target, "").trim();
-  }
-  return {
-    prose: prose || "(các thay đổi đề xuất bên dưới)",
-    actions: Array.isArray(actions) ? actions : [],
-  };
-}
-
 // ---- preview + apply -------------------------------------------------------
-
-function describe(a) {
-  switch (a.type) {
-    case "setCell":
-      return `Set ${a.cell}:  "${a.old ?? ""}" → "${a.new}"`;
-    case "setCells":
-      return `Fill ${a.range} (${(a.values || []).length} rows)`;
-    case "format":
-      return `Format ${a.range}${a.numberFormat ? ` as ${a.numberFormat}` : ""}${a.bold ? " (bold)" : ""}`;
-    case "createTable":
-      return `Create table "${a.name || "Table"}" over ${a.range}`;
-    case "createChart":
-      return `Create ${a.chartType || "Column"} chart from ${a.dataRange}${a.title ? ` — "${a.title}"` : ""}`;
-    case "newSheet":
-      return `New sheet "${a.name}"`;
-    case "renameSheet":
-      return `Rename active tab → "${a.to || a.name}"`;
-    default:
-      return JSON.stringify(a);
-  }
-}
 
 function renderActions(actions) {
   const box = document.getElementById("preview");
@@ -367,20 +330,6 @@ function renderActions(actions) {
   // the footer-level #apply, which we show only when there is a card.
   document.getElementById("apply").hidden = !card;
   document.getElementById("highlightWrap").hidden = !card;
-}
-
-// Range.values evaluates any string starting with =, +, -, or @ as a formula,
-// exactly like Range.formulas. Model-proposed cell values can be influenced by
-// sheet content that's round-tripped into the prompt, so force such strings to
-// literal text (the same leading-apostrophe convention the Excel UI uses) —
-// otherwise a poisoned cell could get an AI-proposed value silently applied as
-// a live formula (e.g. WEBSERVICE-based exfiltration).
-function literalCellValue(v) {
-  return typeof v === "string" && /^[=+\-@]/.test(v) ? "'" + v : v;
-}
-
-function literalizeGrid(values) {
-  return (values || []).map((row) => row.map(literalCellValue));
 }
 
 async function apply() {
@@ -561,12 +510,6 @@ async function apply() {
 }
 
 // ---- helpers ---------------------------------------------------------------
-
-function tableName(n) {
-  return String(n)
-    .replace(/[^A-Za-z0-9_]/g, "_")
-    .replace(/^[^A-Za-z_]/, "_");
-}
 
 function clearPending() {
   pendingActions = [];
