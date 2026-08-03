@@ -665,6 +665,21 @@ body {
   text-wrap: pretty;
 }
 
+/* Payload preview for actions that write a block of content (setCells). Scrolls
+   rather than growing, so one big Action can't push Apply off screen. */
+.ds-card-detail {
+  margin-top: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 5px 8px;
+  border-radius: var(--r-1);
+  background: var(--soft);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre;
+}
+
 .ds-diff-old {
   background: var(--soft);
   color: var(--muted);

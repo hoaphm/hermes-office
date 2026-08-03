@@ -78,6 +78,17 @@ tiến trình trên máy đều đọc được và nó lọt vào lịch sử s
 Excel có thêm các hàm gọi thẳng từ ô, không qua task pane: `=HERMES.CLASSIFY`,
 `=HERMES.EXTRACT`, `=HERMES.SUMMARIZE`, `=HERMES.FORMULA_HELP`.
 
+Các hàm này **mặc định tắt** — vì chúng nằm ngoài nút Áp dụng và một file bảng
+tính chỉ cần *chứa sẵn* công thức là chúng tự chạy lúc mở. Bật khi bạn tin bảng
+tính của mình, bằng cách thêm vào `config.json` rồi tải lại Excel:
+
+```json
+{ "name": "…", "model": "…", "customFunctions": true }
+```
+
+Xem [ADR-0003](./docs/adr/0003-custom-functions-are-off-by-default.md). `npm run
+setup` giữ nguyên lựa chọn này khi bạn đổi Provider.
+
 ## Chạy Gateway tự động (tùy chọn, macOS)
 
 Nếu không muốn mở terminal mỗi lần dùng add-in, bạn có thể để `launchd` giữ
@@ -130,7 +141,7 @@ Xóa `Caddyfile` để gỡ khóa API khỏi máy.
 
 **Khóa API nằm trong `Caddyfile`, không nằm trong `config.json`.** `config.json`
 được Gateway phục vụ qua HTTP nên bất kỳ tiến trình nào trên máy cũng đọc được;
-vì vậy nó chỉ chứa `{name, model}`. `Caddyfile` không bao giờ được phục vụ, được
+vì vậy nó chỉ chứa `{name, model, customFunctions}` — không có gì bí mật. `Caddyfile` không bao giờ được phục vụ, được
 git-ignore, và đặt quyền 600.
 
 Đánh đổi đi kèm, cần biết rõ: **trong lúc Gateway đang chạy, mọi tiến trình local
@@ -157,10 +168,20 @@ mở có thể tác động đến điều model đề xuất. Hai lớp phòng 
 
 - **Không gì được ghi khi bạn chưa duyệt.** Mọi thay đổi đều hiện thành thẻ và chỉ
   chạy khi bấm Áp dụng. Hãy đọc thẻ — đó chính là ranh giới bảo mật.
+- **Thẻ hiện đúng thứ sắp được ghi.** Một hành động ghi cả vùng (`setCells`) hiện
+  luôn nội dung của nó, không phải mỗi dòng "500 rows"; một hành động thay thế
+  trong Word hiện số chỗ sẽ bị đổi *trước* khi bạn bấm. Ranh giới chỉ có giá trị
+  bằng đúng những gì bạn đọc được trên thẻ.
+- **Đề xuất cũ không ghi đè tài liệu mới.** Nếu sheet đã thay đổi kể từ lúc tạo đề
+  xuất, Excel từ chối áp dụng thay vì ghi mù — thẻ bạn duyệt không còn mô tả đúng
+  hiện trạng nữa.
 - **Excel không bao giờ áp dụng giá trị model đề xuất thành công thức sống.** Chuỗi
   bắt đầu bằng `=`, `+`, `-` hoặc `@` bị ép thành text (`literalCellValue` trong
   [`excel/src/taskpane/actions.js`](./excel/src/taskpane/actions.js)), nên một
   `=WEBSERVICE(...)` được cấy vào không thể biến thành kênh rò rỉ dữ liệu.
+- **Hàm `=HERMES.*` mặc định tắt.** Đây là đường duy nhất mà nội dung file tự nó
+  chạm tới Provider được, không qua nút Áp dụng nào — nên nó phải được bật bằng
+  tay trong `config.json`.
 
 ## Phát triển
 
@@ -193,7 +214,7 @@ hermes-office/
 │   └── proposal-card.js    # UI thẻ đề xuất, toast, thanh ngữ cảnh
 ├── scripts/               # setup / serve / stop / install
 ├── Caddyfile.example      # mẫu Local Gateway; setup.mjs sinh ra Caddyfile
-└── config.example.json    # mẫu {name, model}
+└── config.example.json    # mẫu {name, model, customFunctions}
 ```
 
 Hai add-in không nằm trong npm workspace; `shared/` được dùng chung thuần bằng

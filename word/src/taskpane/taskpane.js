@@ -301,12 +301,16 @@ ${data.text}`;
         const edits = parseWordEdits(reply);
         if (edits.length > 0) {
           lastProposal = { type: "fulldoc-edits", target, edits };
+          // Count matches BEFORE the card is drawn: Apply replaces every
+          // occurrence, so "how many" is part of what the user is approving.
+          const counts = await sel.countOccurrences(edits.map((e) => e.find));
           renderProposalCard(preview, {
             title: "Sửa nhanh toàn văn bản",
             actions: edits.map((e) => ({
               type: "replace",
               find: e.find,
               replace: e.replace,
+              matchCount: counts.get(e.find),
             })),
           });
           applyBtn.hidden = false;

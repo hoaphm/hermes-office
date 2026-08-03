@@ -1,4 +1,17 @@
-import { askHermes } from "../shared/hermes";
+// Excel worksheet functions (`=HERMES.*`). These reach the Provider from a
+// cell, OUTSIDE the Apply boundary the task pane enforces — a workbook that
+// merely CONTAINS one of these formulas fires it on open or recalculation, with
+// no card to review and no button to press.
+//
+// That is why every function here is gated on `customFunctions: true` in
+// config.json. config.json is a local file served by the Local Gateway, so a
+// document can never turn the gate on for itself. Off by default: opening an
+// untrusted workbook must not be enough to spend your quota or ship its
+// contents to your Provider. See CONTEXT.md and the README.
+import { askHermes, customFunctionsEnabled } from "../shared/hermes";
+
+const DISABLED_MESSAGE =
+  'Hàm =HERMES.* đang tắt. Thêm "customFunctions": true vào config.json rồi tải lại Excel để bật.';
 
 function ikey(name, args) {
   return name + ":" + JSON.stringify(args);
@@ -10,6 +23,16 @@ function clean(s) {
     .trim();
 }
 
+// Every function funnels through here so the gate cannot be forgotten on a
+// newly added one. A thrown Error surfaces in the cell as an error value.
+async function run(name, prompt, args) {
+  if (!(await customFunctionsEnabled())) throw new Error(DISABLED_MESSAGE);
+  const out = await askHermes([{ role: "user", content: prompt }], {
+    idempotencyKey: ikey(name, args),
+  });
+  return clean(out);
+}
+
 /**
  * Classify a value with Hermes.
  * @customfunction CLASSIFY
@@ -18,16 +41,11 @@ function clean(s) {
  * @returns {Promise<string>} The label.
  */
 export async function classify(value, instruction) {
-  const out = await askHermes(
-    [
-      {
-        role: "user",
-        content: `Classify the text per this instruction: ${instruction}.\nReply with ONLY the label, no punctuation.\n\nText: ${value}`,
-      },
-    ],
-    { idempotencyKey: ikey("CLASSIFY", [value, instruction]) }
+  return run(
+    "CLASSIFY",
+    `Classify the text per this instruction: ${instruction}.\nReply with ONLY the label, no punctuation.\n\nText: ${value}`,
+    [value, instruction]
   );
-  return clean(out);
 }
 
 /**
@@ -38,16 +56,11 @@ export async function classify(value, instruction) {
  * @returns {Promise<string>} The extracted value.
  */
 export async function extract(value, what) {
-  const out = await askHermes(
-    [
-      {
-        role: "user",
-        content: `Extract the ${what} from the text. Reply with ONLY the value, or an empty string if none.\n\nText: ${value}`,
-      },
-    ],
-    { idempotencyKey: ikey("EXTRACT", [value, what]) }
+  return run(
+    "EXTRACT",
+    `Extract the ${what} from the text. Reply with ONLY the value, or an empty string if none.\n\nText: ${value}`,
+    [value, what]
   );
-  return clean(out);
 }
 
 /**
@@ -57,16 +70,11 @@ export async function extract(value, what) {
  * @returns {Promise<string>} One-sentence summary.
  */
 export async function summarize(values) {
-  const out = await askHermes(
-    [
-      {
-        role: "user",
-        content: `Summarize this data in ONE short sentence:\n${JSON.stringify(values)}`,
-      },
-    ],
-    { idempotencyKey: ikey("SUMMARIZE", values) }
+  return run(
+    "SUMMARIZE",
+    `Summarize this data in ONE short sentence:\n${JSON.stringify(values)}`,
+    values
   );
-  return clean(out);
 }
 
 /**
@@ -76,14 +84,9 @@ export async function summarize(values) {
  * @returns {Promise<string>} A single Excel formula.
  */
 export async function formulaHelp(goal) {
-  const out = await askHermes(
-    [
-      {
-        role: "user",
-        content: `Give a single Excel formula that accomplishes: ${goal}. Reply with ONLY the formula, starting with =.`,
-      },
-    ],
-    { idempotencyKey: ikey("FORMULA_HELP", [goal]) }
+  return run(
+    "FORMULA_HELP",
+    `Give a single Excel formula that accomplishes: ${goal}. Reply with ONLY the formula, starting with =.`,
+    [goal]
   );
-  return clean(out);
 }

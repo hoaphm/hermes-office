@@ -277,3 +277,54 @@ test("reset clears pin and returns activity to idle", async () => {
   await sel.onSelectionChanged();
   assert.equal(sel.getPinnedText(), "new text");
 });
+
+// ---- countOccurrences (what the Proposal card promises) ---------------------
+
+test("countOccurrences counts each find with the options Apply will use", async () => {
+  const seen = [];
+  const runWord = (fn) =>
+    fn({
+      sync: async () => {},
+      document: {
+        body: {
+          search: (text, opts) => {
+            seen.push([text, opts]);
+            return {
+              items: new Array(text === "the" ? 12 : 1).fill({}),
+              load: () => {},
+            };
+          },
+        },
+      },
+    });
+  const counts = await createSelectionMgr({ runWord }).countOccurrences([
+    "the",
+    "xyz",
+  ]);
+  assert.equal(counts.get("the"), 12);
+  assert.equal(counts.get("xyz"), 1);
+  assert.deepEqual(seen[0][1], { matchCase: false });
+});
+
+test("countOccurrences skips finds Word.search would reject as too long", async () => {
+  const long = "x".repeat(300);
+  const runWord = (fn) =>
+    fn({
+      sync: async () => {},
+      document: { body: { search: () => ({ items: [], load: () => {} }) } },
+    });
+  const counts = await createSelectionMgr({ runWord }).countOccurrences([long]);
+  assert.equal(
+    counts.has(long),
+    false,
+    "no entry means the card makes no claim",
+  );
+});
+
+test("countOccurrences reports null rather than a wrong number when Word fails", async () => {
+  const runWord = async () => {
+    throw new Error("boom");
+  };
+  const counts = await createSelectionMgr({ runWord }).countOccurrences(["a"]);
+  assert.equal(counts.get("a"), null);
+});

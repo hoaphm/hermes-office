@@ -31,12 +31,20 @@ export function cellRefToPosition(cellRef, rowCount, columnCount) {
 
 // Detect edits whose replacement text contains another edit's find string —
 // applying those in sequence would cascade unpredictably.
+//
+// Compared case-INSENSITIVELY because applyFulldocEdits searches with
+// { matchCase: false }. A case-sensitive test let ["cat"→"Dog", "dog"→"wolf"]
+// through: the search for "dog" then matched the "Dog" the first edit had just
+// written, which is exactly the cascade this guard exists to prevent.
 export function hasChainedEdits(edits) {
-  return edits.some(
-    (edit, i) =>
-      edit.replace &&
-      edits.some((other, j) => i !== j && edit.replace.includes(other.find)),
-  );
+  const fold = (s) => String(s ?? "").toLowerCase();
+  return edits.some((edit, i) => {
+    if (!edit.replace) return false;
+    const replace = fold(edit.replace);
+    return edits.some(
+      (other, j) => i !== j && other.find && replace.includes(fold(other.find)),
+    );
+  });
 }
 
 /**

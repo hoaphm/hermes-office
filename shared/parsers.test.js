@@ -7,6 +7,7 @@ import {
   parseTableChanges,
   extractJsonObject,
   signature,
+  contentSignature,
   hash,
   resolveRange,
   chartType,
@@ -137,6 +138,22 @@ test("chartType: maps known aliases and defaults to ColumnClustered", () => {
   assert.equal(chartType("bar"), "BarClustered");
   assert.equal(chartType("unknown-type"), "ColumnClustered");
   assert.equal(chartType(undefined), "ColumnClustered");
+});
+
+// Apply's staleness guard compares contentSignature. If a mere selection change
+// moved it, every Apply after a click into the task pane would be refused.
+test("contentSignature: unchanged when only the selection moves", () => {
+  const base = { name: "Sheet1", address: "A1:B2", values: [["a", "b"], ["c", "d"]] };
+  const a = { ...base, selection: { address: "A1", values: [["a"]] } };
+  const b = { ...base, selection: { address: "B2", values: [["d"]] } };
+  assert.equal(contentSignature(a), contentSignature(b));
+  assert.notEqual(signature(a), signature(b), "signature must still see the selection");
+});
+
+test("contentSignature: changes when a cell value changes", () => {
+  const base = { name: "Sheet1", address: "A1:B2", values: [["a", "b"], ["c", "d"]] };
+  const edited = { ...base, values: [["a", "b"], ["c", "CHANGED"]] };
+  assert.notEqual(contentSignature(base), contentSignature(edited));
 });
 
 test("hash: deterministic and sensitive to input", () => {

@@ -23,7 +23,10 @@ _Avoid_: sidebar, panel, plugin
 
 **Custom Function**:
 An Excel worksheet formula (`=HERMES.*`) that reaches the Provider from a cell,
-independently of the Task Pane.
+independently of the Task Pane — and therefore outside Apply. A workbook that
+merely contains one fires it on open, so this is the one path where document
+content alone can reach the Provider. Off unless explicitly enabled; see
+ADR-0003.
 
 ### The edit cycle
 
@@ -45,7 +48,12 @@ _Avoid_: edit, operation, command
 **Apply**:
 The user pressing the button that turns a Proposal into real document changes.
 This is the security boundary: document content is untrusted input, so nothing
-reaches the document without passing through it.
+the Task Pane writes reaches the document without passing through it. The one
+path outside it is a Custom Function, which is why that is off by default.
+
+A boundary is only worth as much as the review it enables, so an Action that
+Apply would write must be legible on the card before the press — its payload,
+and how many places it touches — not summarised as a count.
 _Avoid_: commit, save, execute
 
 **Pin**:
