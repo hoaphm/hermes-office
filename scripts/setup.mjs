@@ -172,9 +172,21 @@ async function main() {
 
   const { caddyfilePath, created } = await writeCaddyfile(provider, apiKey);
   const configPath = path.join(root, "config.json");
+  // Re-running setup must not silently re-arm the Custom Function gate: whether
+  // `=HERMES.*` may call the Provider is a security choice the user made, not a
+  // Provider setting. Carry it over; default off.
+  const previous = (await readJsonFile(configPath)) ?? {};
   await fs.writeFile(
     configPath,
-    JSON.stringify({ name: new URL(provider).host, model }, null, 2) + "\n",
+    JSON.stringify(
+      {
+        name: new URL(provider).host,
+        model,
+        customFunctions: previous.customFunctions === true,
+      },
+      null,
+      2,
+    ) + "\n",
   );
 
   console.log(

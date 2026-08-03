@@ -9,11 +9,13 @@
 const DEFAULT_TIMEOUT_MS = 60000;
 let cachedConfig;
 
+// Match on `name`, not `instanceof`: callApi re-wraps every failure in a plain
+// Error carrying only the original's name, so an `err instanceof TypeError`
+// test here could never be true and genuine network failures went un-retried.
+// A network failure is exactly what a retry is for.
 function isTimeoutOrNetworkError(err) {
-  return (
-    err instanceof TypeError ||
-    (err && (err.name === "AbortError" || err.name === "TimeoutError"))
-  );
+  const name = err && err.name;
+  return name === "TypeError" || name === "AbortError" || name === "TimeoutError";
 }
 
 // Office for Mac's WKWebView rejects an AbortSignal passed to fetch() with
@@ -61,8 +63,18 @@ async function loadConfig() {
   if (!model) {
     throw new Error("config.json cần có model. Chạy: npm run setup");
   }
-  cachedConfig = { model };
+  // Custom Functions reach the Provider from a worksheet cell, outside the
+  // Apply boundary — a workbook that merely CONTAINS `=HERMES.*` fires them on
+  // open. Off unless config.json opts in; config.json is a local file, so a
+  // document can never flip this on. See CONTEXT.md and the README.
+  cachedConfig = { model, customFunctions: data.customFunctions === true };
   return cachedConfig;
+}
+
+// Whether `=HERMES.*` worksheet functions are permitted to call the Provider.
+export async function customFunctionsEnabled() {
+  const config = await loadConfig();
+  return config.customFunctions;
 }
 
 export async function callApi(

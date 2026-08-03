@@ -426,6 +426,43 @@ export function createSelectionMgr({ runWord }) {
     return { type: "empty", text: "" };
   }
 
+  // ---- counting matches for the Proposal card ------------------------------
+
+  // How many times each find string occurs in the body, using the SAME search
+  // options Apply will use. The card has to state this before the user commits:
+  // Apply replaces every match, and learning that from a toast mid-Apply is
+  // learning it after the document already changed.
+  //
+  // Best-effort — on failure a find maps to null and the card simply makes no
+  // claim about the count rather than a wrong one.
+  async function countOccurrences(finds) {
+    const counts = new Map();
+    const wanted = [];
+    for (const find of finds) {
+      if (!find || find.length > MAX_SEARCH_LEN || counts.has(find)) continue;
+      counts.set(find, null);
+      wanted.push(find);
+    }
+    if (wanted.length === 0) return counts;
+    try {
+      await runWithRetry(async (context) => {
+        const searches = wanted.map((find) => {
+          const ranges = context.document.body.search(find, {
+            matchCase: false,
+          });
+          ranges.load("items");
+          return { find, ranges };
+        });
+        await context.sync();
+        for (const { find, ranges } of searches)
+          counts.set(find, ranges.items.length);
+      });
+    } catch {
+      // Leave the reserved nulls in place.
+    }
+    return counts;
+  }
+
   // ---- immutable snapshot for proposal-mgr (bug #4) ------------------------
 
   // Captured at Ask time and handed to proposal-mgr, which NEVER reads selection
@@ -484,6 +521,7 @@ export function createSelectionMgr({ runWord }) {
 
   return {
     getSelectionData,
+    countOccurrences,
     captureTarget,
     beginAsk,
     beginApply,

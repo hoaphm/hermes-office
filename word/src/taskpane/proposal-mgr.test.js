@@ -23,6 +23,29 @@ function makeContext(state = {}) {
 
 // ---- pure helpers ----------------------------------------------------------
 
+// applyFulldocEdits searches with { matchCase: false }, so the guard has to
+// fold case too. It did not: "cat"→"Dog" then "dog"→"wolf" passed the check,
+// and the second search matched the "Dog" the first edit had just written.
+test("hasChainedEdits detects a chain that only matches case-insensitively", () => {
+  assert.equal(
+    hasChainedEdits([
+      { find: "cat", replace: "Dog" },
+      { find: "dog", replace: "wolf" },
+    ]),
+    true,
+  );
+});
+
+test("hasChainedEdits ignores an edit with an empty find", () => {
+  assert.equal(
+    hasChainedEdits([
+      { find: "", replace: "x" },
+      { find: "unrelated", replace: "y" },
+    ]),
+    false,
+  );
+});
+
 test("hasChainedEdits detects a chain", () => {
   assert.equal(
     hasChainedEdits([

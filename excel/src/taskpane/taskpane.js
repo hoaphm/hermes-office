@@ -2,7 +2,7 @@
 import { askHermes } from "../shared/hermes";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
-import { signature, resolveRange, chartType } from "../../../shared/parsers.js";
+import { signature, contentSignature, resolveRange, chartType } from "../../../shared/parsers.js";
 // Reply parsing, action descriptions and cell-value literalisation live in a
 // pure module so they can be tested without Office.js — see actions.test.js.
 import {
@@ -61,6 +61,11 @@ let busy = false;
 // Sheet the current pendingActions proposal was generated against — apply()
 // must target this sheet, not whatever happens to be active by click time.
 let proposalSheetName = null;
+// Content fingerprint of that sheet at the moment the Proposal was made. Only
+// setCell carries a per-Action old-value guard; setCells, format and the rest
+// write blind, so this is what stops a Proposal reviewed against one sheet
+// from being applied to a sheet that has since changed.
+let proposalSig = null;
 
 Office.onReady(() => {
   const askBtn = document.getElementById("ask");
@@ -156,6 +161,7 @@ async function ask() {
   try {
     const snap = await getSnapshot();
     proposalSheetName = snap.name;
+    proposalSig = contentSignature(snap);
     if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(snap);
     const sig = signature(snap);
     let content = prompt;
@@ -211,6 +217,7 @@ function newChat() {
   history.length = 1; // keep system message
   lastSig = null;
   proposalSheetName = null;
+  proposalSig = null;
   if (typeof window.__hermesTyping === "function") window.__hermesTyping(false);
   clearPending();
   document.getElementById("log").innerHTML = "";
@@ -343,7 +350,24 @@ async function apply() {
   let applied = 0;
   let skipped = 0;
   const failures = [];
+  // Actions that did not run. Kept so a partial Apply can be retried instead of
+  // being thrown away with the rest of the Proposal.
+  const remaining = [];
   try {
+    // The user reviewed this Proposal against the sheet as it looked at Ask
+    // time. If the content changed since, the review no longer describes what
+    // Apply would write — refuse rather than write blind. Compared on content
+    // only: moving the selection between Ask and Apply is normal.
+    if (proposalSig) {
+      const fresh = await getSnapshot();
+      // A wrong active sheet has its own, more precise error inside Excel.run.
+      if (fresh.name === proposalSheetName && contentSignature(fresh) !== proposalSig) {
+        throw new Error(
+          `Sheet "${proposalSheetName}" đã thay đổi kể từ khi đề xuất được tạo, nên thẻ ` +
+            `bạn vừa xem không còn mô tả đúng thứ sẽ được ghi. Hãy hỏi lại Hermes.`
+        );
+      }
+    }
     await Excel.run(async (context) => {
       const wb = context.workbook;
       const activeSheet = wb.worksheets.getActiveWorksheet();
@@ -412,10 +436,11 @@ async function apply() {
                 const cur = String((r.values || [[null]])[0][0] ?? "");
                 if (cur !== String(a.old)) {
                   skipped++;
+                  remaining.push(a);
                   failures.push(
                     `${describe(a)}: bị bỏ qua — giá trị hiện tại ("${cur}") khác với giá trị gốc ("${a.old}") của đề xuất.`
                   );
-                  break;
+                  continue;
                 }
               }
               r.values = [[literalCellValue(a.new)]];
@@ -464,7 +489,10 @@ async function apply() {
               break;
             }
             default: {
+              // Not silently dropped: the card showed this row, so the summary
+              // has to say why it did nothing.
               skipped++;
+              failures.push(`${describe(a)}: loại hành động không được hỗ trợ — bỏ qua.`);
               continue;
             }
           }
@@ -472,33 +500,49 @@ async function apply() {
           // so a single bad range/malformed action surfaces its own error
           // and can be skipped, rather than aborting — or silently losing
           // track of which action failed in — the whole batch.
-          // setCell with old-value guard already synced and committed its
-          // write; skip a second sync.
-          const lastFailure = failures.length > 0 ? failures[failures.length - 1] : null;
-          if (lastFailure === "__skip_sync__") {
-            failures.pop();
-          } else {
-            await context.sync();
-          }
+          await context.sync();
           applied++;
         } catch (actionErr) {
           skipped++;
+          remaining.push(a);
           failures.push(`${describe(a)}: ${actionErr.message || actionErr}`);
         }
       }
     });
+    const total = pendingActions.length;
     const summary =
       skipped > 0
-        ? `Đã áp dụng ${applied}/${pendingActions.length} hành động (${skipped} bị bỏ qua).`
+        ? `Đã áp dụng ${applied}/${total} hành động (${skipped} bị bỏ qua).`
         : `Đã áp dụng ${applied} hành động.`;
     addBubble("bot", summary, "ok");
     showToast(summary, { tone: skipped > 0 ? "warn" : "ok" });
     if (failures.length > 0) addBubble("bot", "⚠ " + failures.join("; "), "err");
-    clearPending();
     lastSig = null; // workbook changed — re-send fresh data on the next turn
-    proposalSheetName = null;
-    setStatus("Sẵn sàng.");
-    if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
+
+    if (remaining.length > 0) {
+      // Keep the unapplied Actions on the card instead of discarding the whole
+      // Proposal — a partial Apply used to leave them unrecoverable. The sheet
+      // just changed underneath them, so re-baseline the staleness guard
+      // against what the user can see now, or the retry refuses itself.
+      const after = await getSnapshot();
+      proposalSheetName = after.name;
+      proposalSig = contentSignature(after);
+      pendingActions = remaining;
+      renderActions(remaining);
+      addBubble(
+        "bot",
+        `${remaining.length} hành động chưa chạy vẫn còn trên thẻ — sửa nguyên nhân ở trên rồi bấm Áp dụng lần nữa.`,
+        "warn"
+      );
+      setStatus(`Còn ${remaining.length} hành động chưa áp dụng.`, "warn");
+      if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(after);
+    } else {
+      clearPending();
+      proposalSheetName = null;
+      proposalSig = null;
+      setStatus("Sẵn sàng.");
+      if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
+    }
   } catch (e) {
     const errText = "⚠ " + e.message;
     addBubble("bot", errText, "err");

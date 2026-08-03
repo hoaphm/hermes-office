@@ -123,9 +123,19 @@ export function hash(str) {
   return h;
 }
 
+// Fingerprint of the sheet CONTENT alone. Apply compares this to decide whether
+// the sheet still looks the way it did when the Proposal was reviewed. It must
+// exclude the selection: moving the cursor between Ask and Apply is normal and
+// must not be mistaken for the sheet changing underneath the Proposal.
+export function contentSignature(s) {
+  return `${s.name}|${s.address}|${s.values.length}|${hash(JSON.stringify(s.values))}`;
+}
+
+// Content plus selection — what decides whether to re-send the Snapshot to the
+// Provider, where a changed selection IS a reason to re-send.
 export function signature(s) {
   const selPart = s.selection ? `${s.selection.address}|${hash(JSON.stringify(s.selection.values))}` : "";
-  return `${s.name}|${s.address}|${s.values.length}|${hash(JSON.stringify(s.values))}|${selPart}`;
+  return `${contentSignature(s)}|${selPart}`;
 }
 
 // Resolves an A1 address (optionally "Sheet!A1") to an Office.js Range,

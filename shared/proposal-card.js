@@ -124,6 +124,31 @@ export function mountContextBar(host, chips) {
 
 // ---- Proposal card (the core component) -----------------------------------
 
+// A grid Action can carry thousands of cells. The card must still SHOW what
+// will be written — Apply is only a review boundary if the payload is on
+// screen — so render a bounded window of it rather than a row count alone.
+const PREVIEW_ROWS = 8;
+const PREVIEW_COLS = 8;
+
+/**
+ * Flatten a 2-D grid into a bounded, human-readable block for the card.
+ *
+ * @param {any[][]} values
+ * @returns {string} plain text; the caller escapes it
+ */
+export function previewGrid(values) {
+  const rows = Array.isArray(values) ? values : [];
+  const lines = rows.slice(0, PREVIEW_ROWS).map((row) => {
+    const cells = Array.isArray(row) ? row : [row];
+    const shown = cells.slice(0, PREVIEW_COLS).map((c) => String(c ?? ""));
+    const restCols = cells.length - PREVIEW_COLS;
+    return shown.join("  │  ") + (restCols > 0 ? `  │  … +${restCols} cột` : "");
+  });
+  const restRows = rows.length - PREVIEW_ROWS;
+  if (restRows > 0) lines.push(`… +${restRows} dòng nữa`);
+  return lines.join("\n");
+}
+
 /**
  * Describe a single action.
  *
@@ -132,8 +157,11 @@ export function mountContextBar(host, chips) {
  * a title of `R&D "2024"` rendered as `R&amp;D &quot;2024&quot;`. Escaping
  * belongs at the single point where a string enters innerHTML, not here.
  *
+ * `detail` is the payload the action will write, shown verbatim under the
+ * summary. An action that writes content the summary cannot fit MUST set it.
+ *
  * @param {object} a action (Word edits[] or Excel actions[])
- * @returns {{summary: string, kind: "diff"|"info", diff?: {old, new}, label?: string}}
+ * @returns {{summary: string, kind: "diff"|"info", diff?: {old, new}, detail?: string}}
  */
 export function describeAction(a) {
   if (!a || typeof a !== "object") return { summary: String(a), kind: "info" };
@@ -144,17 +172,21 @@ export function describeAction(a) {
         kind: "diff",
         diff: { old: String(a.old ?? ""), new: String(a.new ?? "") },
       };
-    case "setCells":
+    case "setCells": {
+      const rows = Array.isArray(a.values) ? a.values : [];
       return {
-        summary: `Fill ${a.range} · ${(a.values || []).length} rows`,
+        summary: `Fill ${a.range} · ${rows.length} rows`,
         kind: "info",
+        detail: previewGrid(rows),
       };
+    }
     case "format":
       return {
         summary:
           `Format ${a.range}` +
           (a.numberFormat ? ` as ${a.numberFormat}` : "") +
-          (a.bold ? " (bold)" : ""),
+          (a.bold ? " (bold)" : "") +
+          (a.fill ? ` fill ${a.fill}` : ""),
         kind: "info",
       };
     case "createTable":
@@ -174,11 +206,19 @@ export function describeAction(a) {
     case "renameSheet":
       return { summary: `Rename active tab → "${a.to || a.name}"`, kind: "info" };
     case "replace": {
-      // Word edit shape: { find, replace, all_occurrences }.
+      // Word edit shape: { find, replace, matchCount }.
       const find = a.find ?? a.find_text ?? "";
       const replace = a.replace ?? a.replace_text ?? "";
+      // Apply replaces EVERY match, case-insensitively. The count has to be on
+      // the card: warning about it during Apply is a warning after the write.
+      // Undefined (the host could not count) simply shows no claim.
+      const n = typeof a.matchCount === "number" ? a.matchCount : null;
+      let summary = "Replace";
+      if (n === 0) summary += " · không còn tìm thấy trong tài liệu";
+      else if (n === 1) summary += " · 1 chỗ";
+      else if (n !== null) summary += ` · TẤT CẢ ${n} chỗ`;
       return {
-        summary: `Replace`,
+        summary,
         kind: "diff",
         diff: { old: String(find), new: String(replace) },
       };
@@ -232,19 +272,19 @@ export function renderProposalCard(host, proposal) {
   const list = document.createElement("ul");
   list.className = "ds-card-list";
   proposal.actions.forEach((a) => {
-    const { summary, kind, diff } = describeAction(a);
+    const { summary, kind, diff, detail } = describeAction(a);
     const li = document.createElement("li");
     li.className = "ds-card-action";
+    let html = `<div class="label">${esc(summary)}</div>`;
     if (kind === "diff" && diff) {
-      li.innerHTML =
-        `<div class="label">${esc(summary)}</div>` +
+      html +=
         `<div class="diff">` +
         `<div class="ds-diff-old">${esc(diff.old)}</div>` +
         `<div class="ds-diff-new">${esc(diff.new)}</div>` +
         `</div>`;
-    } else {
-      li.innerHTML = `<div class="label">${esc(summary)}</div>`;
     }
+    if (detail) html += `<div class="ds-card-detail">${esc(detail)}</div>`;
+    li.innerHTML = html;
     list.appendChild(li);
   });
   card.appendChild(list);

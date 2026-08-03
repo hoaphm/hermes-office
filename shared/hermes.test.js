@@ -81,6 +81,20 @@ test("callApi passes no AbortSignal to fetch (Office WebView compatibility)", as
   assert.equal(seenInit.signal, undefined, "fetch must receive no signal");
 });
 
+// A network failure rejects fetch with a TypeError. callApi re-wraps it, so the
+// retry check must match on `name` — an `instanceof TypeError` test there was
+// always false and no network failure was ever retried.
+test("askHermes retries once on a network error", async () => {
+  let apiCalls = 0;
+  global.fetch = async (url) => {
+    if (url === "/config.json") return { ok: true, json: async () => CONFIG };
+    apiCalls++;
+    throw new TypeError("Failed to fetch");
+  };
+  await assert.rejects(() => askHermes([{ role: "user", content: "hi" }]));
+  assert.equal(apiCalls, 2);
+});
+
 test("askHermes retries once on timeout", async () => {
   let callCount = 0;
   global.fetch = async (url) => {
@@ -92,4 +106,32 @@ test("askHermes retries once on timeout", async () => {
   };
   await assert.rejects(() => askHermes([{ role: "user", content: "hi" }]), /kịp thời/);
   assert.equal(callCount, 2);
+});
+
+// ---- Custom Function gate ---------------------------------------------------
+// loadConfig caches per module instance, so each case imports a fresh copy via
+// a distinct query string rather than fighting the cache.
+
+test("customFunctionsEnabled: off when config.json says nothing", async () => {
+  global.fetch = async () => ({ ok: true, json: async () => ({ model: "m" }) });
+  const mod = await import("./hermes.js?cf=absent");
+  assert.equal(await mod.customFunctionsEnabled(), false);
+});
+
+test("customFunctionsEnabled: on only for a literal true", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ model: "m", customFunctions: true }),
+  });
+  const mod = await import("./hermes.js?cf=true");
+  assert.equal(await mod.customFunctionsEnabled(), true);
+});
+
+test("customFunctionsEnabled: a truthy string does not open the gate", async () => {
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ model: "m", customFunctions: "yes" }),
+  });
+  const mod = await import("./hermes.js?cf=string");
+  assert.equal(await mod.customFunctionsEnabled(), false);
 });
