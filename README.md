@@ -22,7 +22,14 @@ và [ADR-0002](./docs/adr/0002-the-api-key-lives-in-the-caddyfile.md).
 
 ## Cài đặt
 
-Cần: Microsoft 365 bản desktop, Node.js 18+, và [Caddy](https://caddyserver.com/docs/install).
+Cần: Microsoft 365 bản desktop, Node.js 18+, npm, và [Caddy](https://caddyserver.com/docs/install).
+
+Cài dependency cho hai add-in trước khi chạy script cài đặt:
+
+```bash
+npm ci --prefix word
+npm ci --prefix excel
+```
 
 ```bash
 # macOS
@@ -31,7 +38,8 @@ bash scripts/install.sh
 .\scripts\install.ps1
 ```
 
-Script sẽ build add-in rồi hỏi ba thứ:
+Script sẽ build add-in rồi hỏi ba thứ. Nếu Caddy chưa có trong `PATH`, script chỉ
+cảnh báo; cài Caddy trước khi chạy Gateway.
 
 | Hỏi | Ví dụ | Ghi vào đâu |
 |-----|-------|-------------|
@@ -114,7 +122,7 @@ Khi có LaunchAgent, cách vận hành đổi khác — đọc kỹ:
 |------|------|
 | Nạp lại sau khi sửa `Caddyfile` | `launchctl kickstart -k gui/$(id -u)/com.hermes.caddy` |
 | Dừng hẳn (tới lần đăng nhập sau) | `launchctl bootout gui/$(id -u)/com.hermes.caddy` |
-| Xem log | `~/.hermes/logs/caddy.error.log` |
+| Xem log | `~/Library/Logs/hermes-office/caddy.error.log` |
 
 - `npm run setup` **tự kickstart** job sau khi ghi `Caddyfile`. Không có bước này
   thì đổi Provider/khóa/model xong vẫn chạy cấu hình cũ: caddy giữ Caddyfile
@@ -194,7 +202,8 @@ npm run serve    # chạy Local Gateway
 npm run stop     # dừng Local Gateway
 ```
 
-Cần Node 18+ (`.nvmrc` ghim 22). CI chạy test trên 18/20/22, lint, build, và kiểm
+Cần Node 18+ (`.nvmrc` ghim 22). Sau khi cài dependency cho `word/` và `excel/`,
+CI chạy test trên 18/20/22, lint, build, và kiểm
 tra rằng bundle build ra không chứa chuỗi nào giống khóa API.
 
 Từ vựng dùng chung trong code và tài liệu nằm ở [`CONTEXT.md`](./CONTEXT.md);
