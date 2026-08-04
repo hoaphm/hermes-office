@@ -11,13 +11,37 @@ function makeContext(state = {}) {
   return {
     sync: async () => {},
     document: {
-      getSelection: () => loadable({ tables: { items: state.tables ?? [] } }),
+      getSelection: () =>
+        loadable({ tables: { items: state.selectionTables ?? state.tables ?? [] } }),
       body: {
         load: () => {},
-        tables: { items: state.tables ?? [] },
+        tables: { items: state.bodyTables ?? state.tables ?? [] },
         search: () => loadable({ items: state.searchItems ?? [] }),
       },
     },
+  };
+}
+
+// A Word table proxy: enough of the surface findProposalTable/applyTable touch.
+// Each call builds a FRESH object, because that is what Office.js does — the
+// same physical table reached by two navigation paths is two client objects.
+function makeTable(values) {
+  return {
+    rowCount: values.length,
+    columnCount: values[0].length,
+    load: () => {},
+    getCell: (r, c) => ({
+      body: {
+        getRange: () => ({
+          load: () => {},
+          text: values[r][c],
+          insertText(next) {
+            values[r][c] = next;
+            return { font: {} };
+          },
+        }),
+      },
+    }),
   };
 }
 
@@ -91,6 +115,84 @@ test("cellRefToPosition rejects out-of-bounds refs", () => {
 });
 
 // ---- applyTable (bug #4: wrong-table guard) --------------------------------
+
+const SIG_2X2 = '2x2:[["a","b"],["c","d"]]';
+
+// The bug this pins: findProposalTable used to merge the selection's tables with
+// the body's and dedupe the merged list with `new Set(...)` — object identity.
+// Office.js materialises a separate client object per navigation path, so the
+// ONE table the user selected arrived as two distinct objects, both matched the
+// signature, and "two matches" is the ambiguity case that refuses. Applying to a
+// selected table could therefore never succeed.
+test("applyTable finds the table when selection and body report it separately", async () => {
+  const values = [
+    ["a", "b"],
+    ["c", "d"],
+  ];
+  const runWord = (fn) =>
+    fn(
+      makeContext({
+        selectionTables: [makeTable(values)],
+        bodyTables: [makeTable(values)],
+      }),
+    );
+  const mgr = createProposalMgr({
+    target: { kind: "table", sig: SIG_2X2 },
+    runWord,
+  });
+  const result = await mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], {
+    markRed: false,
+  });
+  assert.equal(result.applied, 1);
+});
+
+// The ambiguity guard still has to work: two genuinely different tables holding
+// identical content cannot be told apart, so writing into either is a guess.
+test("applyTable still refuses when two distinct tables share the content", async () => {
+  const runWord = (fn) =>
+    fn(
+      makeContext({
+        selectionTables: [],
+        bodyTables: [
+          makeTable([
+            ["a", "b"],
+            ["c", "d"],
+          ]),
+          makeTable([
+            ["a", "b"],
+            ["c", "d"],
+          ]),
+        ],
+      }),
+    );
+  const mgr = createProposalMgr({
+    target: { kind: "table", sig: SIG_2X2 },
+    runWord,
+  });
+  await assert.rejects(
+    () => mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], { markRed: false }),
+    /Không còn tìm thấy bảng/,
+  );
+});
+
+// body.tables does not descend into nested tables, so the selection is still
+// needed as a fallback — dropping it would break Apply on a nested table.
+test("applyTable falls back to the selection for a table the body does not list", async () => {
+  const values = [
+    ["a", "b"],
+    ["c", "d"],
+  ];
+  const runWord = (fn) =>
+    fn(makeContext({ selectionTables: [makeTable(values)], bodyTables: [] }));
+  const mgr = createProposalMgr({
+    target: { kind: "table", sig: SIG_2X2 },
+    runWord,
+  });
+  const result = await mgr.applyTable([{ cell: "B2", value: "z", old: "d" }], {
+    markRed: false,
+  });
+  assert.equal(result.applied, 1);
+});
 
 test("applyTable rejects when no table matches the target sig", async () => {
   const runWord = (fn) => fn(makeContext({ tables: [] }));

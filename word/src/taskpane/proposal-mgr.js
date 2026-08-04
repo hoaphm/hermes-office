@@ -57,20 +57,13 @@ export function hasChainedEdits(edits) {
 export function createProposalMgr({ target, runWord, showToast }) {
   const notify = showToast || (() => {});
 
-  // Locate the table whose current contents still match the target signature.
-  // Checks the tables in the live selection first (common case, cheap), then
-  // falls back to scanning the body. Returns null when no table matches, which
-  // the caller turns into a "select the table again" error rather than writing
-  // into whatever table happens to be selected now.
-  async function findProposalTable(context, sig) {
-    const sel = context.document.getSelection();
-    sel.load("tables/items");
-    const body = context.document.body;
-    body.load("tables/items");
+  // Every table under `parent` whose current contents still match `sig`.
+  async function matchingTables(context, parent, sig) {
+    parent.load("tables/items");
     await context.sync();
 
     const matches = [];
-    for (const table of new Set(sel.tables.items.concat(body.tables.items))) {
+    for (const table of parent.tables.items) {
       table.load(["rowCount", "columnCount"]);
       await context.sync();
       const rangeRows = [];
@@ -90,9 +83,35 @@ export function createProposalMgr({ target, runWord, showToast }) {
       const snapSig = `${table.rowCount}x${table.columnCount}:${JSON.stringify(values)}`;
       if (snapSig === sig) matches.push(table);
     }
-    // Same contents can appear in multiple tables. Picking the first match would
-    // write a proposal into an unrelated table.
-    return matches.length === 1 ? matches[0] : null;
+    return matches;
+  }
+
+  // Locate the table whose current contents still match the target signature.
+  // Returns null when none matches OR when several do, which the caller turns
+  // into a "select the table again" error rather than writing into whatever
+  // table happens to be selected now.
+  //
+  // The two sources are searched one after the other, never merged. Merging
+  // them and deduping with `new Set(...)` — object identity — looked right and
+  // was not: Office.js materialises a separate client object per navigation
+  // path, so the single table the user had selected arrived once from the
+  // selection and again from the body as two distinct objects. Both matched,
+  // two matches reads as ambiguous, and Apply refused every table proposal made
+  // from a selection.
+  //
+  // The body lists every top-level table, so it settles the common case alone.
+  // The selection is the fallback for a table nested inside another, which
+  // body.tables does not descend into.
+  async function findProposalTable(context, sig) {
+    const fromBody = await matchingTables(context, context.document.body, sig);
+    if (fromBody.length > 0) return fromBody.length === 1 ? fromBody[0] : null;
+
+    const fromSelection = await matchingTables(
+      context,
+      context.document.getSelection(),
+      sig,
+    );
+    return fromSelection.length === 1 ? fromSelection[0] : null;
   }
 
   /**
