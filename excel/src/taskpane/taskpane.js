@@ -565,8 +565,12 @@ async function apply() {
     // A Partial Apply: keep the unrun Actions on the card instead of discarding
     // the whole Proposal — they used to be unrecoverable. See ADR-0004 for what
     // this costs and why the card has to say so.
-    const after =
-      remaining.length > 0 && !retargetsSheets(ran) ? await getSnapshot(proposalSheetName) : null;
+    // Re-baseline only against a sheet we can still NAME. Without the
+    // proposalSheetName guard, getSnapshot() falls back to the active sheet,
+    // which is the retargeting this whole branch exists to prevent.
+    const canKeepRemainder =
+      remaining.length > 0 && Boolean(proposalSheetName) && !retargetsSheets(ran);
+    const after = canKeepRemainder ? await getSnapshot(proposalSheetName) : null;
 
     if (after) {
       // Re-baselined against the PROPOSAL's sheet, read by name. Reading the
@@ -589,13 +593,17 @@ async function apply() {
       if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(after);
     } else {
       if (remaining.length > 0) {
-        // Either the batch created or renamed a sheet, or the Proposal's sheet
-        // is gone. A bare range in the unrun Actions no longer has a target we
-        // can name, and guessing one is exactly what Apply exists to prevent.
+        // A bare range in the unrun Actions no longer has a target we can name,
+        // and guessing one is exactly what Apply exists to prevent. Say which
+        // of the two reasons it was — "it changed underneath you" and "I cannot
+        // find your sheet any more" call for different next moves.
+        const reason = retargetsSheets(ran)
+          ? "đề xuất này tạo hoặc đổi tên sheet"
+          : `không còn đọc được sheet "${proposalSheetName || "?"}"`;
         addBubble(
           "bot",
-          `${remaining.length} hành động chưa chạy đã bị bỏ: đề xuất này tạo hoặc đổi tên sheet, ` +
-            `nên không còn xác định được chúng sẽ ghi vào đâu. Hãy hỏi lại Hermes.`,
+          `${remaining.length} hành động chưa chạy đã bị bỏ: ${reason}, nên không còn ` +
+            `xác định được chúng sẽ ghi vào đâu. Hãy hỏi lại Hermes.`,
           "warn"
         );
       }
