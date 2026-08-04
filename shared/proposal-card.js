@@ -130,6 +130,43 @@ export function mountContextBar(host, chips) {
 const PREVIEW_ROWS = 8;
 const PREVIEW_COLS = 8;
 
+// Action types that write without first checking what is already there. Only
+// setCell compares against a captured old value, so after a Partial Apply has
+// moved the document underneath the Remainder, setCell is the only Action still
+// covered by the review the user gave. These are the ones the card badges.
+// See CONTEXT.md ("Partial Apply") and ADR-0004.
+const BLIND_WRITE_TYPES = new Set([
+  "setCells",
+  "format",
+  "createTable",
+  "createChart",
+]);
+
+export function writesBlind(action) {
+  return Boolean(action) && BLIND_WRITE_TYPES.has(action.type);
+}
+
+/**
+ * The banner a Remainder carries. Says why the card changed and how much of it
+ * the earlier review no longer covers — not a bare count, and not silence.
+ *
+ * @param {object[]} actions the Remainder
+ * @returns {string} plain text; renderProposalCard escapes it
+ */
+export function partialApplyNotice(actions) {
+  const blind = (actions || []).filter(writesBlind).length;
+  if (blind === 0) {
+    return (
+      "Sheet đã đổi sau lần áp dụng trước. Các hành động còn lại vẫn kiểm tra " +
+      "giá trị hiện tại trước khi ghi."
+    );
+  }
+  return (
+    `Sheet đã đổi sau lần áp dụng trước. ${blind} hành động dưới đây ghi đè ` +
+    "không kiểm tra giá trị hiện tại."
+  );
+}
+
 /**
  * Flatten a 2-D grid into a bounded, human-readable block for the card.
  *
@@ -245,8 +282,20 @@ export function describeAction(a) {
  * would be a decorative duplicate of it. Callers should show/hide their own
  * #apply based on whether this returns a card.
  *
+ * `notice` renders as a banner directly under the header, and `badgeAction`
+ * returns a short label to pin on an individual action (or falsy for none).
+ * Both exist for the Remainder a Partial Apply leaves behind: the banner says
+ * why the card is no longer what the user reviewed, the badges say which rows
+ * that applies to. Reporting only the banner would summarise into a single
+ * claim exactly what the Apply boundary requires per-action — see CONTEXT.md.
+ *
  * @param {HTMLElement} host any container (e.g. #preview)
- * @param {{ title?: string, actions: object[] }} proposal
+ * @param {{
+ *   title?: string,
+ *   actions: object[],
+ *   notice?: string,
+ *   badgeAction?: (action: object) => string|null,
+ * }} proposal
  * @returns {HTMLElement|null} the rendered card element, or null if no actions
  */
 export function renderProposalCard(host, proposal) {
@@ -268,14 +317,28 @@ export function renderProposalCard(host, proposal) {
     `<span class="ds-card-tag">${proposal.actions.length} mục</span>`;
   card.appendChild(head);
 
+  // Banner (Remainder of a Partial Apply — normally absent)
+  if (proposal.notice) {
+    const notice = document.createElement("div");
+    notice.className = "ds-card-notice";
+    notice.setAttribute("role", "note");
+    notice.textContent = proposal.notice;
+    card.appendChild(notice);
+  }
+
   // Action list
   const list = document.createElement("ul");
   list.className = "ds-card-list";
+  const badgeAction = proposal.badgeAction;
   proposal.actions.forEach((a) => {
     const { summary, kind, diff, detail } = describeAction(a);
     const li = document.createElement("li");
     li.className = "ds-card-action";
-    let html = `<div class="label">${esc(summary)}</div>`;
+    const badge = badgeAction ? badgeAction(a) : null;
+    let html =
+      `<div class="label">${esc(summary)}` +
+      (badge ? `<span class="ds-card-badge">${esc(badge)}</span>` : "") +
+      `</div>`;
     if (kind === "diff" && diff) {
       html +=
         `<div class="diff">` +

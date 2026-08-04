@@ -70,6 +70,17 @@ export function describe(a) {
   }
 }
 
+// Action types that change what an unqualified range means. `newSheet`
+// activates the sheet it creates and `renameSheet` moves the name the Proposal
+// was pinned to, so once one of them has run, the Actions of the same Proposal
+// that did NOT run no longer have a well-defined target. There is no honest
+// Remainder to offer in that case — refuse it. See ADR-0004.
+const RETARGETING_TYPES = new Set(["newSheet", "renameSheet"]);
+
+export function retargetsSheets(actions) {
+  return (actions || []).some((a) => a && RETARGETING_TYPES.has(a.type));
+}
+
 // Excel table names accept only letters, digits and underscore, and cannot
 // start with a digit.
 export function tableName(n) {

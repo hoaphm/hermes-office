@@ -12,6 +12,7 @@ import {
   splitReply,
   describe,
   tableName,
+  retargetsSheets,
 } from "./actions.js";
 // UI helpers (proposal card, toast, context bar) live in shared/proposal-card.js
 // so both add-ins get the same design system + a11y treatment.
@@ -23,6 +24,8 @@ import {
   setBusy as setBusyUi,
   showToast,
   renderProposalCard,
+  writesBlind,
+  partialApplyNotice,
 } from "../../../shared/proposal-card.js";
 
 const MAX_ROWS = 500;
@@ -66,6 +69,10 @@ let proposalSheetName = null;
 // write blind, so this is what stops a Proposal reviewed against one sheet
 // from being applied to a sheet that has since changed.
 let proposalSig = null;
+// True once a press has written part of this Proposal. The Remainder on the
+// card was reviewed against the sheet as it was BEFORE those writes, so the
+// card has to say so rather than look identical to a fresh Proposal. ADR-0004.
+let afterPartialApply = false;
 
 Office.onReady(() => {
   const askBtn = document.getElementById("ask");
@@ -208,6 +215,8 @@ async function ask() {
     proposalSheetName = snap.name;
     proposalSig = contentSignature(snap);
     pendingActions = actions;
+    // A fresh Proposal, reviewed against a sheet nothing has written to since.
+    afterPartialApply = false;
     renderActions(actions);
     setStatus(
       actions.length
@@ -238,10 +247,19 @@ function newChat() {
 
 // ---- reading the sheet (only sent when changed) ----------------------------
 
-async function getSnapshot() {
+// Reads the active sheet, or a named one when the caller has a specific sheet
+// in mind — re-baselining a Remainder must read the Proposal's OWN sheet, and
+// the active sheet is not it once a newSheet Action has activated the sheet it
+// created. Returns null when the named sheet is gone.
+async function getSnapshot(sheetName) {
   return Excel.run(async (context) => {
-    const sheet = context.workbook.worksheets.getActiveWorksheet();
-    sheet.load("name");
+    const named = Boolean(sheetName);
+    const sheet = named
+      ? context.workbook.worksheets.getItemOrNullObject(sheetName)
+      : context.workbook.worksheets.getActiveWorksheet();
+    // isNullObject only exists on the OrNullObject result; loading it off
+    // getActiveWorksheet() would throw.
+    sheet.load(named ? ["name", "isNullObject"] : ["name"]);
     const used = sheet.getUsedRangeOrNullObject(true); // valuesOnly
     used.load(["address", "values"]);
     // The sheet name and used range are the parts that must not fail, so they
@@ -252,6 +270,7 @@ async function getSnapshot() {
     // afterwards threw PropertyNotLoaded and the whole Ask died on a detail
     // the code had already decided was optional.
     await context.sync();
+    if (named && sheet.isNullObject) return null;
 
     // Read the user's current selection (single cell or range), then cap it
     // by the same row/column/byte limits as the used-range snapshot — a user
@@ -349,6 +368,10 @@ function renderActions(actions) {
       ? `${actions.length} hành động đề xuất cho sheet "${proposalSheetName || ""}"`
       : "",
     actions: actions,
+    // Only after a press has already written part of this Proposal. A fresh
+    // Proposal carries neither, so the marks mean something when they appear.
+    notice: afterPartialApply ? partialApplyNotice(actions) : null,
+    badgeAction: afterPartialApply ? (a) => (writesBlind(a) ? "⚠ ghi đè" : null) : null,
   });
   // renderProposalCard renders no CTA of its own — the single Apply button is
   // the footer-level #apply, which we show only when there is a card.
@@ -370,6 +393,8 @@ async function apply() {
   // Actions that did not run. Kept so a partial Apply can be retried instead of
   // being thrown away with the rest of the Proposal.
   const remaining = [];
+  // Actions that DID run — what decides whether a Remainder is still meaningful.
+  const ran = [];
   try {
     // The user reviewed this Proposal against the sheet as it looked at Ask
     // time. If the content changed since, the review no longer describes what
@@ -519,6 +544,7 @@ async function apply() {
           // track of which action failed in — the whole batch.
           await context.sync();
           applied++;
+          ran.push(a);
         } catch (actionErr) {
           skipped++;
           remaining.push(a);
@@ -536,15 +562,23 @@ async function apply() {
     if (failures.length > 0) addBubble("bot", "⚠ " + failures.join("; "), "err");
     lastSig = null; // workbook changed — re-send fresh data on the next turn
 
-    if (remaining.length > 0) {
-      // Keep the unapplied Actions on the card instead of discarding the whole
-      // Proposal — a partial Apply used to leave them unrecoverable. The sheet
-      // just changed underneath them, so re-baseline the staleness guard
-      // against what the user can see now, or the retry refuses itself.
-      const after = await getSnapshot();
+    // A Partial Apply: keep the unrun Actions on the card instead of discarding
+    // the whole Proposal — they used to be unrecoverable. See ADR-0004 for what
+    // this costs and why the card has to say so.
+    const after =
+      remaining.length > 0 && !retargetsSheets(ran) ? await getSnapshot(proposalSheetName) : null;
+
+    if (after) {
+      // Re-baselined against the PROPOSAL's sheet, read by name. Reading the
+      // active sheet instead silently retargeted the Remainder: a newSheet
+      // Action activates the sheet it creates, so proposalSheetName became the
+      // new sheet and the unrun Actions' bare ranges would have been written
+      // there on the next press — past a guard that had just been re-baselined
+      // to agree.
       proposalSheetName = after.name;
       proposalSig = contentSignature(after);
       pendingActions = remaining;
+      afterPartialApply = true;
       renderActions(remaining);
       addBubble(
         "bot",
@@ -554,10 +588,21 @@ async function apply() {
       setStatus(`Còn ${remaining.length} hành động chưa áp dụng.`, "warn");
       if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(after);
     } else {
+      if (remaining.length > 0) {
+        // Either the batch created or renamed a sheet, or the Proposal's sheet
+        // is gone. A bare range in the unrun Actions no longer has a target we
+        // can name, and guessing one is exactly what Apply exists to prevent.
+        addBubble(
+          "bot",
+          `${remaining.length} hành động chưa chạy đã bị bỏ: đề xuất này tạo hoặc đổi tên sheet, ` +
+            `nên không còn xác định được chúng sẽ ghi vào đâu. Hãy hỏi lại Hermes.`,
+          "warn"
+        );
+      }
       clearPending();
       proposalSheetName = null;
       proposalSig = null;
-      setStatus("Sẵn sàng.");
+      setStatus(remaining.length > 0 ? "Cần hỏi lại Hermes." : "Sẵn sàng.");
       if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
     }
   } catch (e) {
@@ -574,6 +619,7 @@ async function apply() {
 
 function clearPending() {
   pendingActions = [];
+  afterPartialApply = false;
   document.getElementById("preview").innerHTML = "";
   document.getElementById("apply").hidden = true;
   document.getElementById("highlightWrap").hidden = true;
