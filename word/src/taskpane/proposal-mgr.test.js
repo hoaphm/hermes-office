@@ -12,7 +12,9 @@ function makeContext(state = {}) {
     sync: async () => {},
     document: {
       getSelection: () =>
-        loadable({ tables: { items: state.selectionTables ?? state.tables ?? [] } }),
+        loadable({
+          tables: { items: state.selectionTables ?? state.tables ?? [] },
+        }),
       body: {
         load: () => {},
         tables: { items: state.bodyTables ?? state.tables ?? [] },
@@ -170,7 +172,10 @@ test("applyTable still refuses when two distinct tables share the content", asyn
     runWord,
   });
   await assert.rejects(
-    () => mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], { markRed: false }),
+    () =>
+      mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], {
+        markRed: false,
+      }),
     /Không còn tìm thấy bảng/,
   );
 });

@@ -169,6 +169,8 @@ ${data.text}`;
     setBusyUi(askBtn, true);
     setStatus("Đang đọc tài liệu…", "busy");
     lastProposal = null;
+    // The previous Proposal is gone, so its hold on the Pin goes with it.
+    sel.unlockPin();
     applyBtn.hidden = true;
     markRedWrap.hidden = true;
     preview.innerHTML = "";
@@ -295,6 +297,10 @@ ${data.text}`;
           title: "Đề xuất chỉnh sửa đoạn đã chọn",
           actions: [{ type: "replace", find: target.text, replace: passage }],
         });
+        // Apply writes through the bookmark, so the Pin has to outlive the pane
+        // taking focus. Without this the next empty selectionChanged clears it
+        // and Apply falls back to a body search that refuses a repeated passage.
+        sel.lockPin();
         applyBtn.hidden = false;
         markRedWrap.hidden = false;
       } else if (selectionData.type === "fulldoc") {
@@ -385,6 +391,10 @@ ${data.text}`;
       addMsg("bot", `Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       showToast(`Đã áp dụng ${n} thay đổi.${skippedNote}`, { tone: "ok" });
       lastProposal = null;
+      // No Proposal left to anchor: the text path already cleared the Pin, the
+      // others just release the hold. A failed Apply deliberately keeps both,
+      // because the Proposal is still on screen and still retryable.
+      sel.unlockPin();
       preview.innerHTML = "";
       applyBtn.hidden = true;
       markRedWrap.hidden = true;
@@ -403,11 +413,10 @@ ${data.text}`;
   }
 
   // ---- new chat ------------------------------------------------------------
-  function newChat() {
+  async function newChat() {
     if (busy) return;
     messages = [];
     lastProposal = null;
-    sel.reset();
     log.innerHTML = "";
     if (emptyEl) emptyEl.classList.remove("is-hidden");
     preview.innerHTML = "";
@@ -416,6 +425,10 @@ ${data.text}`;
     const markRedEl = document.getElementById("markRed");
     if (markRedEl) markRedEl.checked = true;
     setStatus("Cuộc trò chuyện mới. Chọn văn bản và yêu cầu Hermes chỉnh sửa.");
+    // UI first so the button feels instant; the document-side clear is a
+    // Word.run round-trip. Awaited so an unawaited bookmark delete cannot land
+    // after the next selectionChanged has already re-pinned.
+    await sel.reset();
     refreshContextBar();
   }
 

@@ -75,7 +75,11 @@ export function createSelectionMgr({ runWord }) {
   let pinnedText = ""; // cached text of the pinned selection (memory)
   let capturedText = ""; // snapshot taken at Ask time, fallback Apply target
   let selectionIsPinned = false;
+  // Serialises the selectionChanged handler AND is what getSelectionData waits
+  // on, so an Ask never starts while a pin is still being written.
   let pendingPin = Promise.resolve();
+  // Set while a rendered Proposal is anchored to the Pin. See lockPin().
+  let pinLocked = false;
 
   // ---- reading the selection (text / table / full doc) ---------------------
 
@@ -239,26 +243,44 @@ export function createSelectionMgr({ runWord }) {
 
   // ---- selectionChanged handler (gated by ActivityMachine) -----------------
 
+  async function handleSelectionChange() {
+    // Re-checked here, not only in onSelectionChanged: an event that queued
+    // behind an earlier one may reach the front after an Ask has started.
+    if (activity !== "idle") return;
+
+    const text = await readSelectedText();
+    if (!text) {
+      // Idle + empty selection. Normally the old pin is stale and gets cleared
+      // — but "empty" is also what focus moving into the taskpane looks like,
+      // and if a Proposal is on screen its Pin is the thing Apply will write
+      // through. A Pin that does not survive focus leaving the document is not
+      // doing the job the bookmark exists for.
+      if (pinLocked) return;
+      pinnedText = "";
+      selectionIsPinned = false;
+      capturedText = "";
+      targetKind = "empty";
+      await clearSelectionBookmark();
+      return;
+    }
+    // A non-empty event is the user deliberately aiming somewhere else, so it
+    // re-pins even under a lock. The pending Proposal is unaffected: its target
+    // was frozen by captureTarget() at Ask time.
+    await pinCurrentSelection();
+  }
+
   async function onSelectionChanged() {
     // THE GATE (bug #2/#3): while reading or applying, ignore selectionChanged
     // entirely. Focus leaving the document fires an empty selection event that
     // would otherwise wipe the pin a pending Ask/Apply depends on.
     if (activity !== "idle") return;
 
-    const text = await readSelectedText();
-    if (!text) {
-      // Idle + empty selection → the old pin is stale; clear it.
-      pinnedText = "";
-      selectionIsPinned = false;
-      capturedText = "";
-      targetKind = "empty";
-      await clearSelectionBookmark();
-      pendingPin = Promise.resolve();
-      return;
-    }
-    // pinCurrentSelection never rejects, so this promise is always safe to
-    // await from getSelectionData().
-    pendingPin = pinCurrentSelection();
+    // Queue behind whatever is already in flight instead of racing it. Two
+    // events arriving together used to run their read-then-pin sequences
+    // concurrently; the Word.run batches interleave, so the OLDER selection's
+    // insertBookmark could land last and win. Neither handler ever rejects, but
+    // the chain is defended anyway so one failure cannot wedge the queue.
+    pendingPin = pendingPin.then(handleSelectionChange, handleSelectionChange);
     await pendingPin;
   }
 
@@ -495,9 +517,23 @@ export function createSelectionMgr({ runWord }) {
     return { end: () => (activity = "idle") };
   }
 
+  // Hold the Pin against the empty selectionChanged that focus leaving the
+  // document produces. The taskpane locks once a text Proposal is on screen and
+  // unlocks when that Proposal is applied or discarded — the Pin is what Apply
+  // writes through, so it has to outlive the pane taking focus.
+  function lockPin() {
+    pinLocked = true;
+  }
+
+  function unlockPin() {
+    pinLocked = false;
+  }
+
   // Drop the in-memory pin + document bookmark WITHOUT touching activity — used
-  // after a text Apply, whose replacement invalidates the original passage.
+  // after a text Apply, whose replacement invalidates the original passage. An
+  // explicit clear overrides the lock; that is the point of it being explicit.
   async function clearPin() {
+    pinLocked = false;
     pinnedText = "";
     selectionIsPinned = false;
     capturedText = "";
@@ -525,6 +561,8 @@ export function createSelectionMgr({ runWord }) {
     captureTarget,
     beginAsk,
     beginApply,
+    lockPin,
+    unlockPin,
     clearPin,
     reset,
     ensurePinnedBookmark,
