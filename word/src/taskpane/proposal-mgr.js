@@ -163,7 +163,12 @@ export function createProposalMgr({ target, runWord, showToast }) {
    * Apply inline search-and-replace edits across the whole document. Each edit
    * is applied and sync'd independently so one bad edit (search text too long,
    * or no longer found) can't abort the rest of the batch.
-   * @returns {Promise<{applied: number, skipped: number}>}
+   *
+   * `applied`/`skipped` count EDITS; `replaced` counts the passages actually
+   * rewritten, which is larger whenever an edit matched more than once. The
+   * caller reports `replaced`: an edit is a request, a replacement is a change
+   * to the document, and the user is being told what happened to their file.
+   * @returns {Promise<{applied: number, skipped: number, replaced: number}>}
    */
   async function applyFulldocEdits(edits, { markRed }) {
     if (hasChainedEdits(edits))
@@ -173,6 +178,7 @@ export function createProposalMgr({ target, runWord, showToast }) {
     return runWord(async (context) => {
       let applied = 0;
       let skipped = 0;
+      let replaced = 0;
       for (const edit of edits) {
         if (!edit.find || edit.find.length > MAX_SEARCH_LEN) {
           skipped++;
@@ -205,11 +211,12 @@ export function createProposalMgr({ target, runWord, showToast }) {
           });
           await context.sync();
           applied++;
+          replaced += ranges.items.length;
         } catch {
           skipped++;
         }
       }
-      return { applied, skipped };
+      return { applied, skipped, replaced };
     });
   }
 

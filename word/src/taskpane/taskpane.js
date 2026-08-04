@@ -380,10 +380,14 @@ ${data.text}`;
         await sel.clearPin();
       }
 
-      const n =
-        lastProposal.type === "table"
-          ? lastProposal.changes.length
-          : stats.applied;
+      // What the user is told is the number of places in their document that
+      // changed. For fulldoc edits that is `replaced`, not `applied`: one edit
+      // rewrites every match, so "1 thay đổi" could mean three rewritten
+      // passages — and the count is what they would check before undoing.
+      let n;
+      if (lastProposal.type === "table") n = lastProposal.changes.length;
+      else if (lastProposal.type === "fulldoc-edits") n = stats.replaced;
+      else n = stats.applied;
       const skippedNote =
         stats.skipped > 0
           ? ` (${stats.skipped} bỏ qua — không tìm thấy hoặc quá dài để tìm kiếm)`

@@ -256,6 +256,40 @@ test("applyFulldocEdits applies a matching edit", async () => {
   assert.equal(result.skipped, 0);
 });
 
+// One edit can rewrite many passages — Apply replaces EVERY match. Counting
+// edits and calling the result "changes" told the user 1 when the document had
+// three passages rewritten, which is exactly the number they would need to
+// check before deciding whether to undo.
+test("applyFulldocEdits counts passages rewritten, not edits attempted", async () => {
+  const searchItems = [
+    { insertText: () => ({ font: {} }) },
+    { insertText: () => ({ font: {} }) },
+    { insertText: () => ({ font: {} }) },
+  ];
+  const runWord = (fn) => fn(makeContext({ searchItems }));
+  const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
+  const result = await mgr.applyFulldocEdits(
+    [{ find: "old", replace: "new" }],
+    {
+      markRed: false,
+    },
+  );
+  assert.equal(result.applied, 1, "one edit ran");
+  assert.equal(result.replaced, 3, "three passages were rewritten");
+});
+
+test("applyFulldocEdits reports zero replacements when nothing matched", async () => {
+  const runWord = (fn) => fn(makeContext({ searchItems: [] }));
+  const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
+  const result = await mgr.applyFulldocEdits(
+    [{ find: "missing", replace: "x" }],
+    {
+      markRed: false,
+    },
+  );
+  assert.equal(result.replaced, 0);
+});
+
 test("applyFulldocEdits marks red when requested", async () => {
   const inserted = { font: {} };
   const searchItem = { insertText: () => inserted };
