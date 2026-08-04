@@ -91,6 +91,95 @@ test("gate: focus-loss (empty selection) does not clear pin while reading", asyn
   );
 });
 
+// ---- serialising the handler ----------------------------------------------
+
+// Two selectionChanged events arriving close together each ran their own
+// read-then-pin sequence concurrently. Their Word.run batches interleave, so
+// the OLDER selection's insertBookmark could land last and win — the stale-pin
+// bug the bookmark was introduced to prevent, reached by a different route.
+// getSelectionData() also awaited only the newest pin, so an Ask could start
+// while an older one was still writing.
+test("pin: overlapping selection changes never run two batches at once", async () => {
+  const state = { selectionText: "A", bookmarkText: null };
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const runWord = async (fn) => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    try {
+      return await fn(makeContext(state));
+    } finally {
+      inFlight -= 1;
+    }
+  };
+  const sel = createSelectionMgr({ runWord });
+
+  // Fire both without awaiting the first, as Word does on a fast drag.
+  const first = sel.onSelectionChanged();
+  const second = sel.onSelectionChanged();
+  await Promise.all([first, second]);
+
+  assert.equal(
+    maxInFlight,
+    1,
+    "a second selectionChanged must queue behind the first, not race it",
+  );
+});
+
+// ---- the Pin outlives focus while a Proposal needs it ----------------------
+
+// The ActivityMachine gate only holds while an Ask or Apply is running. Once
+// the Ask finishes the pane goes idle with a Proposal on screen, and the next
+// empty selectionChanged — which is what firing focus into the taskpane looks
+// like — cleared the very Pin that Proposal is anchored to. Apply then fell
+// back to a body search and refused outright if the passage was not unique.
+test("pin: a locked Pin survives an empty selection", async () => {
+  const state = { selectionText: "pinned passage", bookmarkText: null };
+  const runWord = (fn) => fn(makeContext(state));
+  const sel = createSelectionMgr({ runWord });
+
+  await sel.onSelectionChanged();
+  assert.equal(sel.getPinnedText(), "pinned passage");
+
+  sel.lockPin(); // a text Proposal is now on screen and depends on this Pin
+  state.selectionText = "";
+  await sel.onSelectionChanged();
+  assert.equal(
+    sel.getPinnedText(),
+    "pinned passage",
+    "the Proposal's Pin must survive focus leaving the document",
+  );
+});
+
+test("pin: unlocking restores the normal clear-on-empty behaviour", async () => {
+  const state = { selectionText: "pinned passage", bookmarkText: null };
+  const runWord = (fn) => fn(makeContext(state));
+  const sel = createSelectionMgr({ runWord });
+
+  await sel.onSelectionChanged();
+  sel.lockPin();
+  sel.unlockPin();
+
+  state.selectionText = "";
+  await sel.onSelectionChanged();
+  assert.equal(sel.getPinnedText(), "");
+});
+
+// A lock must not freeze the Pin against the user's own intent: deliberately
+// selecting a different passage still re-pins.
+test("pin: a locked Pin still moves when the user selects something else", async () => {
+  const state = { selectionText: "first passage", bookmarkText: null };
+  const runWord = (fn) => fn(makeContext(state));
+  const sel = createSelectionMgr({ runWord });
+
+  await sel.onSelectionChanged();
+  sel.lockPin();
+
+  state.selectionText = "second passage";
+  await sel.onSelectionChanged();
+  assert.equal(sel.getPinnedText(), "second passage");
+});
+
 // ---- reconcile: document beats memory (bug #1) -----------------------------
 
 test("reconcile: bookmark text wins over stale cached memory", async () => {

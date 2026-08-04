@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { describeAction, previewGrid } from "./proposal-card.js";
+import {
+  describeAction,
+  previewGrid,
+  writesBlind,
+  partialApplyNotice,
+} from "./proposal-card.js";
 
 // The card IS the review boundary: Apply only means something if what it will
 // write is on screen. These tests pin that contract for the actions whose
@@ -46,6 +51,43 @@ test("replace: the card states how many places will change", () => {
   assert.match(describeAction({ type: "replace", find: "a", replace: "b", matchCount: 7 }).summary, /TẤT CẢ 7/);
   assert.match(describeAction({ type: "replace", find: "a", replace: "b", matchCount: 1 }).summary, /1 chỗ/);
   assert.match(describeAction({ type: "replace", find: "a", replace: "b", matchCount: 0 }).summary, /không còn tìm thấy/);
+});
+
+// ---- Partial Apply: marking a Remainder ------------------------------------
+// After a press has written part of a Proposal, the rest of it stands on a
+// review the document has already moved past. Which rows that applies to is
+// per-action information, so the card carries it per action — the same reason
+// the replace count above is not summarised away. See ADR-0004.
+
+test("writesBlind marks exactly the Actions with no old-value guard", () => {
+  for (const type of ["setCells", "format", "createTable", "createChart"]) {
+    assert.equal(writesBlind({ type }), true, `${type} writes blind`);
+  }
+  // setCell compares against a.old before writing, so the original review still
+  // covers it even after the sheet has moved.
+  assert.equal(writesBlind({ type: "setCell" }), false);
+  assert.equal(writesBlind({ type: "newSheet" }), false);
+  assert.equal(writesBlind(null), false);
+  assert.equal(writesBlind(undefined), false);
+});
+
+test("partialApplyNotice counts the Actions the earlier review no longer covers", () => {
+  const notice = partialApplyNotice([
+    { type: "setCell", cell: "B2", old: "1", new: "2" },
+    { type: "setCells", range: "A5:C9", values: [[]] },
+    { type: "format", range: "C2:C50", bold: true },
+  ]);
+  assert.match(notice, /Sheet đã đổi/);
+  assert.match(notice, /2 hành động/);
+});
+
+test("partialApplyNotice does not cry wolf when every Action still guards itself", () => {
+  const notice = partialApplyNotice([
+    { type: "setCell", cell: "B2", old: "1", new: "2" },
+  ]);
+  assert.match(notice, /Sheet đã đổi/);
+  assert.match(notice, /vẫn kiểm tra giá trị hiện tại/);
+  assert.doesNotMatch(notice, /ghi đè/);
 });
 
 test("replace: an uncounted edit claims nothing rather than claiming zero", () => {

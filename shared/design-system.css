@@ -616,6 +616,38 @@ body {
   flex: none;
 }
 
+/* Banner for the Remainder a Partial Apply leaves behind: the card is no
+   longer what the user reviewed, and it has to say so before the second press.
+   Dashed, not coloured — warning is carried by border style throughout this
+   system (see .ds-msg[data-tone="warn"]), so it survives a monochrome host. */
+.ds-card-notice {
+  padding: 9px var(--sp-4);
+  border-bottom: var(--bw-2) dashed var(--fg);
+  background: var(--soft);
+  color: var(--fg);
+  font-size: var(--fs-100);
+  font-weight: 700;
+  line-height: var(--lh-normal);
+}
+
+.ds-card-notice::before {
+  content: "⚠ ";
+}
+
+/* Per-action badge. The banner says why; this says which. */
+.ds-card-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--fs-100);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border: var(--bw-1) dashed var(--fg);
+  border-radius: var(--r-1);
+  color: var(--fg);
+  white-space: nowrap;
+}
+
 .ds-card-list {
   list-style: none;
   padding: 0;

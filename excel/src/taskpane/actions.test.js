@@ -7,7 +7,35 @@ import {
   splitReply,
   describe,
   tableName,
+  retargetsSheets,
 } from "./actions.js";
+
+// ---- Partial Apply: what survives a press that only half ran ---------------
+// See ADR-0004. Both of these decide what the user is allowed to press again.
+
+test("retargetsSheets spots a batch that moved what a bare range means", () => {
+  assert.equal(retargetsSheets([{ type: "newSheet", name: "Dashboard" }]), true);
+  assert.equal(retargetsSheets([{ type: "renameSheet", to: "Q3" }]), true);
+  assert.equal(
+    retargetsSheets([
+      { type: "setCell", cell: "A1", new: "x" },
+      { type: "renameSheet", to: "Q3" },
+    ]),
+    true
+  );
+});
+
+test("retargetsSheets leaves an ordinary batch alone", () => {
+  assert.equal(
+    retargetsSheets([
+      { type: "setCell", cell: "A1", new: "x" },
+      { type: "format", range: "B1:B9", bold: true },
+    ]),
+    false
+  );
+  assert.equal(retargetsSheets([]), false);
+  assert.equal(retargetsSheets(undefined), false);
+});
 
 // ---- literalCellValue: the prompt-injection boundary ----------------------
 // Sheet content is untrusted input that round-trips through the model, so a

@@ -36,8 +36,9 @@ Bounded because a whole workbook does not fit in a request.
 _Avoid_: context, dump, payload
 
 **Proposal**:
-A parsed set of changes the model suggested, rendered as a card. It has touched
-nothing yet.
+A parsed set of changes the model suggested, rendered as a card. Until Apply it
+has touched nothing — see Partial Apply for what it becomes after a press that
+ran only some of it.
 _Avoid_: suggestion, edit plan, diff
 
 **Action**:
@@ -55,6 +56,15 @@ A boundary is only worth as much as the review it enables, so an Action that
 Apply would write must be legible on the card before the press — its payload,
 and how many places it touches — not summarised as a count.
 _Avoid_: commit, save, execute
+
+**Partial Apply**:
+An Apply that ran some of a Proposal's Actions and not others. The Proposal
+survives with the unrun Actions still on the card, so a single bad Action does
+not discard the rest. But the document has moved underneath those Actions, and
+the review the user already gave no longer describes what an Action that writes
+blind would write now. The card must say so before the second press — a boundary
+the user cannot see is not a boundary.
+_Avoid_: partial failure, retry, resume
 
 **Pin**:
 A Word bookmark anchoring the passage a Proposal targets, so the target survives
