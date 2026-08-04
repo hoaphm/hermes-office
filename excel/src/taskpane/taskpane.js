@@ -160,22 +160,25 @@ async function ask() {
   setBusy(true, "Đang đọc bảng tính…");
   try {
     const snap = await getSnapshot();
-    proposalSheetName = snap.name;
-    proposalSig = contentSignature(snap);
     if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(snap);
     const sig = signature(snap);
-    let content = prompt;
-    if (sig !== lastSig) {
-      lastSig = sig;
-      content = `${dataNote(snap)}\n\n${prompt}`;
-    }
-    history.push({ role: "user", content });
+    const dataChanged = sig !== lastSig;
+    const content = dataChanged ? `${dataNote(snap)}\n\n${prompt}` : prompt;
+    // Built, not pushed: a turn joins the conversation only once its reply is
+    // in hand. Pushing first left an orphan user turn behind every failed call,
+    // so a second attempt sent two user messages in a row.
+    const outgoing = [...history, { role: "user", content }];
 
     setBusy(true, "Hermes đang suy nghĩ…");
     if (typeof window.__hermesTyping === "function") window.__hermesTyping(true);
-    const raw = await askHermes(history);
+    const raw = await askHermes(outgoing);
     if (typeof window.__hermesTyping === "function") window.__hermesTyping(false);
-    history.push({ role: "assistant", content: raw });
+
+    history.push({ role: "user", content }, { role: "assistant", content: raw });
+    // Likewise deferred: advancing lastSig before the call meant a failed turn
+    // recorded a Snapshot as delivered that the Provider never saw, and the
+    // next turn withheld it as unchanged.
+    if (dataChanged) lastSig = sig;
     // Trim oldest turns, always preserving the system message at index 0.
     if (history.length > MAX_HISTORY_MESSAGES + 1) {
       history.splice(1, history.length - (MAX_HISTORY_MESSAGES + 1));
@@ -197,6 +200,13 @@ async function ask() {
       renderActions([]);
       return;
     }
+    // Baseline the staleness guard here, not at the top of ask(): it must
+    // describe the Snapshot THIS Proposal was generated from. Setting it before
+    // the call meant a failed ask re-baselined the Proposal still sitting on the
+    // card against a newer sheet, and Apply then measured that Proposal's
+    // freshness against a state its author never saw.
+    proposalSheetName = snap.name;
+    proposalSig = contentSignature(snap);
     pendingActions = actions;
     renderActions(actions);
     setStatus(
@@ -232,6 +242,16 @@ async function getSnapshot() {
   return Excel.run(async (context) => {
     const sheet = context.workbook.worksheets.getActiveWorksheet();
     sheet.load("name");
+    const used = sheet.getUsedRangeOrNullObject(true); // valuesOnly
+    used.load(["address", "values"]);
+    // The sheet name and used range are the parts that must not fail, so they
+    // get a sync of their own. They used to share one with the best-effort
+    // selection read below — and a sync that rejects does not re-queue the
+    // loads it carried, so a selection Excel refused to hand over (a multi-area
+    // pick, a chart focused) left sheet.name permanently unloaded. Reading it
+    // afterwards threw PropertyNotLoaded and the whole Ask died on a detail
+    // the code had already decided was optional.
+    await context.sync();
 
     // Read the user's current selection (single cell or range), then cap it
     // by the same row/column/byte limits as the used-range snapshot — a user
@@ -258,9 +278,6 @@ async function getSnapshot() {
       /* no selection or multi-area — ignore */
     }
 
-    const used = sheet.getUsedRangeOrNullObject(true); // valuesOnly
-    used.load(["address", "values"]);
-    await context.sync();
     if (used.isNullObject) {
       return {
         name: sheet.name,
