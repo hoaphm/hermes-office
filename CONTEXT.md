@@ -55,6 +55,10 @@ path outside it is a Custom Function, which is why that is off by default.
 A boundary is only worth as much as the review it enables, so an Action that
 Apply would write must be legible on the card before the press — its payload,
 and how many places it touches — not summarised as a count.
+
+A Proposal is reviewable only when every Action, its payload, and the number of
+affected locations can be read before Apply. Oversized Proposals are rejected
+before rendering; they are not truncated or summarized into an approvable card.
 _Avoid_: commit, save, execute
 
 **Partial Apply**:
