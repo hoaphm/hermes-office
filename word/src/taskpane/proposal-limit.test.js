@@ -66,32 +66,52 @@ test("userErrorMessage falls back to String(err) when there is no message", () =
 // local task-pane errors pass through verbatim.
 
 test("isProviderError classifies call-pipeline stage tags", () => {
-  assert.ok(isProviderError(new Error("[call-api:read-response] Provider 500: boom")));
-  assert.ok(isProviderError(new Error("[call-api:fetch] TypeError: Failed to fetch")));
-  assert.ok(isProviderError(new Error("[api-first] [call-api:read-response] Provider 503: x")));
+  assert.ok(
+    isProviderError(new Error("[call-api:read-response] Provider 500: boom")),
+  );
+  assert.ok(
+    isProviderError(new Error("[call-api:fetch] TypeError: Failed to fetch")),
+  );
+  assert.ok(
+    isProviderError(
+      new Error("[api-first] [call-api:read-response] Provider 503: x"),
+    ),
+  );
   assert.ok(isProviderError(new Error("[api-retry] [call-api:fetch] boom")));
   // taskpane.js wraps askHermes failures in [stage:call-api].
   assert.ok(
     isProviderError(
-      new Error("[stage:call-api] [api-first] [call-api:read-response] Provider 500: x"),
+      new Error(
+        "[stage:call-api] [api-first] [call-api:read-response] Provider 500: x",
+      ),
     ),
   );
   // config fetch is a network/HTTP stage of the call pipeline.
   assert.ok(
     isProviderError(
-      new Error("[config-fetch:https://localhost:8643/config.json] network error"),
+      new Error(
+        "[config-fetch:https://localhost:8643/config.json] network error",
+      ),
     ),
   );
   // Local task-pane errors are NOT provider failures.
-  assert.ok(!isProviderError(new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn")));
-  assert.ok(!isProviderError(new Error("Không còn tìm thấy bảng của đề xuất này.")));
+  assert.ok(
+    !isProviderError(
+      new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn"),
+    ),
+  );
+  assert.ok(
+    !isProviderError(new Error("Không còn tìm thấy bảng của đề xuất này.")),
+  );
   assert.ok(!isProviderError(new Error("[stage:read-doc] boom")));
 });
 
 test("provider failures show the fixed message and never the raw body", () => {
   const raw =
-    "Provider 500: {\"error\":{\"message\":\"internal\",\"trace\":\"/app/src/line 42\"}}";
-  const err = new Error(`[stage:call-api] [api-first] [call-api:read-response] ${raw}`);
+    'Provider 500: {"error":{"message":"internal","trace":"/app/src/line 42"}}';
+  const err = new Error(
+    `[stage:call-api] [api-first] [call-api:read-response] ${raw}`,
+  );
   const shown = userErrorMessage(err);
   assert.equal(shown, PROVIDER_UNAVAILABLE_MESSAGE);
   assert.ok(
@@ -99,12 +119,17 @@ test("provider failures show the fixed message and never the raw body", () => {
     "raw provider response body must never reach the user",
   );
   assert.ok(!shown.includes("trace"), "no provider diagnostic in the bubble");
-  assert.ok(!shown.includes("line 42"), "no provider line number in the bubble");
+  assert.ok(
+    !shown.includes("line 42"),
+    "no provider line number in the bubble",
+  );
   assert.ok(!shown.includes("\n"), "single-line, no stack");
 });
 
 test("config-fetch failures collapse to the fixed message", () => {
-  const err = new Error("[config-fetch:https://localhost:8643/config.json] Failed to fetch");
+  const err = new Error(
+    "[config-fetch:https://localhost:8643/config.json] Failed to fetch",
+  );
   const shown = userErrorMessage(err);
   assert.equal(shown, PROVIDER_UNAVAILABLE_MESSAGE);
   assert.ok(!shown.includes("localhost"), "no local gateway URL in the bubble");
@@ -112,19 +137,30 @@ test("config-fetch failures collapse to the fixed message", () => {
 
 test("local task-pane errors are preserved verbatim", () => {
   assert.equal(
-    userErrorMessage(new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn")),
+    userErrorMessage(
+      new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn"),
+    ),
     "Đề xuất có quá nhiều thay đổi để xem xét an toàn",
   );
   assert.equal(
-    userErrorMessage(new Error("Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.")),
+    userErrorMessage(
+      new Error(
+        "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
+      ),
+    ),
     "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
   );
   assert.equal(
-    userErrorMessage(new Error("Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.")),
+    userErrorMessage(
+      new Error("Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes."),
+    ),
     "Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.",
   );
   // Local document-read stage is not a provider failure.
-  assert.equal(userErrorMessage(new Error("[stage:read-doc] boom")), "[stage:read-doc] boom");
+  assert.equal(
+    userErrorMessage(new Error("[stage:read-doc] boom")),
+    "[stage:read-doc] boom",
+  );
 });
 
 test("the already-safe askHermes timeout message passes through unchanged", () => {
