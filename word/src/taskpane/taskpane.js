@@ -1,4 +1,4 @@
-/* global Office, Word, document */
+/* global Office, Word, document, console */
 // Word task pane — thin UI + orchestration layer.
 //
 // All selection/bookmark state lives in selection-mgr.js (two orthogonal state

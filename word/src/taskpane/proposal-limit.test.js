@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_ACTIONS, assertReviewableActions, userErrorMessage } from "../../../shared/proposal-card.js";
+import {
+  MAX_ACTIONS,
+  assertReviewableActions,
+  userErrorMessage,
+} from "../../../shared/proposal-card.js";
 
 // The Word reviewability gate. taskpane.js itself cannot be unit-tested in
 // plain node (Office.onReady, document, Word.run), so the pure guard it calls
