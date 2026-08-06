@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_ACTIONS, assertReviewableActions } from "../../../shared/proposal-card.js";
+import { MAX_ACTIONS, assertReviewableActions, userErrorMessage } from "../../../shared/proposal-card.js";
 
 // The Word reviewability gate. taskpane.js itself cannot be unit-tested in
 // plain node (Office.onReady, document, Word.run), so the pure guard it calls
@@ -33,4 +33,23 @@ test("assertReviewableActions rejects only on length, not content", () => {
   assert.throws(() => assertReviewableActions(Array(101).fill({})), Error);
   assert.doesNotThrow(() => assertReviewableActions(Array(1).fill({})));
   assert.doesNotThrow(() => assertReviewableActions([]));
+});
+
+// ---- Error disclosure ------------------------------------------------------
+// An oversized-Proposal rejection (and any other task-pane error) must reach
+// the user as the safe message only — never the raw stack trace. The full
+// error is logged via console.error by the caller.
+
+test("userErrorMessage surfaces only the message, never the stack", () => {
+  const err = new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn");
+  const shown = userErrorMessage(err);
+  assert.equal(shown, "Đề xuất có quá nhiều thay đổi để xem xét an toàn");
+  assert.ok(!shown.includes(err.stack), "stack must not leak to the user");
+  assert.ok(!shown.includes("\n"), "no multi-line disclosure");
+});
+
+test("userErrorMessage falls back to String(err) when there is no message", () => {
+  assert.equal(userErrorMessage({}), "[object Object]");
+  assert.equal(userErrorMessage("boom"), "boom");
+  assert.equal(userErrorMessage(undefined), "undefined");
 });

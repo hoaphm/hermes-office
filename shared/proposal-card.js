@@ -474,4 +474,15 @@ export function assertReviewableActions(actions) {
   return actions;
 }
 
+/**
+ * The only user-visible representation of an error: the safe, human-readable
+ * message. The full error (including any stack trace) is logged by the caller
+ * via console.error — never rendered into the chat log.
+ * @param {unknown} err
+ * @returns {string}
+ */
+export function userErrorMessage(err) {
+  return (err && err.message) || String(err);
+}
+
 export { columnIndexToLetters, columnLettersToIndex };

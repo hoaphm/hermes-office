@@ -19,6 +19,7 @@ import {
   mountContextBar,
   renderProposalCard,
   assertReviewableActions,
+  userErrorMessage,
 } from "../../../shared/proposal-card.js";
 import { createSelectionMgr, MAX_FULLDOC_CHARS } from "./selection-mgr.js";
 import { createProposalMgr, cellRefToPosition } from "./proposal-mgr.js";
@@ -344,9 +345,8 @@ ${data.text}`;
     } catch (err) {
       removeTypingIndicator(typingEl);
       typingEl = null;
-      addMsg("bot", (err.message || String(err)) + "\n" + (err.stack || ""), {
-        tone: "err",
-      });
+      console.error(err); // full detail (incl. stack) to the console only
+      addMsg("bot", userErrorMessage(err), { tone: "err" });
       setStatus("Lỗi.", "err");
     } finally {
       handle.end();
