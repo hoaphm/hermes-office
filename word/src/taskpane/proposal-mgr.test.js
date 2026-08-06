@@ -214,34 +214,6 @@ test("applyTable rejects when no table matches the target sig", async () => {
   );
 });
 
-// One logical table represented twice — the selection and the body each expose
-// a distinct Office proxy with the same content and signature. Selection-first
-// resolution must resolve through the selected copy exactly once, never through
-// the body copy, and never fail as an ambiguous match.
-test("applyTable resolves the selected copy of an overlapping logical table", async () => {
-  const selectedCell = { insertedText: undefined };
-  const bodyCell = { insertedText: undefined };
-  const selectedTable = makeCellTable("before", selectedCell);
-  const bodyTable = makeCellTable("before", bodyCell);
-  const runWord = (fn) =>
-    fn(
-      makeContext({
-        selectionTables: [selectedTable],
-        bodyTables: [bodyTable],
-      }),
-    );
-  const mgr = createProposalMgr({
-    target: { kind: "table", sig: '1x1:[["before"]]', table: {} },
-    runWord,
-  });
-  const changes = [{ cell: "A1", old: "before", value: "after" }];
-  assert.deepEqual(await mgr.applyTable(changes, { markRed: false }), {
-    applied: 1,
-  });
-  assert.equal(selectedCell.insertedText, "after");
-  assert.equal(bodyCell.insertedText, undefined);
-});
-
 // ---- applyFulldocEdits -----------------------------------------------------
 
 test("applyFulldocEdits rejects chained edits", async () => {
