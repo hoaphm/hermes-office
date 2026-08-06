@@ -448,4 +448,30 @@ export function parseWordTableChanges(raw) {
   return parseTableChanges(raw);
 }
 
+// ---- Reviewability limit ---------------------------------------------------
+
+// A Proposal larger than this is refused rather than rendered: the card
+// becomes unreviewable, and Apply is only a security boundary if the user can
+// read what it will write. Canonical value — Word guards on it and Excel
+// re-exports it from actions.js so the public import surface stays stable.
+export const MAX_ACTIONS = 100;
+
+const REVIEW_LIMIT_ERROR =
+  "Đề xuất có quá nhiều thay đổi để xem xét an toàn";
+
+/**
+ * Throw the UI-safe Vietnamese error when a proposal holds more Actions than
+ * the reviewable limit; otherwise return the array unchanged so the callsite
+ * can chain. MUST run before any Proposal is created/rendered — the oversized
+ * payload is rejected, never truncated.
+ * @param {Array<unknown>} actions parsed Actions to review
+ * @returns {Array<unknown>} the same array, when within the limit
+ */
+export function assertReviewableActions(actions) {
+  if (actions.length > MAX_ACTIONS) {
+    throw new Error(REVIEW_LIMIT_ERROR);
+  }
+  return actions;
+}
+
 export { columnIndexToLetters, columnLettersToIndex };

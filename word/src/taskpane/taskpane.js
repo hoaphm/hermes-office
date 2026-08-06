@@ -18,6 +18,7 @@ import {
   showToast,
   mountContextBar,
   renderProposalCard,
+  assertReviewableActions,
 } from "../../../shared/proposal-card.js";
 import { createSelectionMgr, MAX_FULLDOC_CHARS } from "./selection-mgr.js";
 import { createProposalMgr, cellRefToPosition } from "./proposal-mgr.js";
@@ -261,6 +262,7 @@ ${data.text}`;
 
       if (selectionData.type === "table") {
         const tableChanges = parseWordTableChanges(reply);
+        assertReviewableActions(tableChanges); // reject oversized before mapping old / rendering
         if (tableChanges.length > 0) {
           const table = selectionData.tables[0];
           lastProposal = {
@@ -292,6 +294,9 @@ ${data.text}`;
         }
       } else if (selectionData.type === "text") {
         const passage = stripWrappingFence(reply);
+        assertReviewableActions([
+          { type: "replace", find: target.text, replace: passage },
+        ]); // reject oversized before creating the Proposal
         lastProposal = { type: "text", target, text: passage };
         renderProposalCard(preview, {
           title: "Đề xuất chỉnh sửa đoạn đã chọn",
@@ -305,6 +310,7 @@ ${data.text}`;
         markRedWrap.hidden = false;
       } else if (selectionData.type === "fulldoc") {
         const edits = parseWordEdits(reply);
+        assertReviewableActions(edits); // reject oversized before counting/render
         if (edits.length > 0) {
           lastProposal = { type: "fulldoc-edits", target, edits };
           // Count matches BEFORE the card is drawn: Apply replaces every

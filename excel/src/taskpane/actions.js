@@ -2,10 +2,8 @@
 // Actions, describing them for the card, and making their values safe to write.
 // No Office.js here on purpose — this is the part that can be tested.
 import { extractJsonObject } from "../../../shared/parsers.js";
-
-// A Proposal larger than this is refused rather than rendered: the card becomes
-// unreviewable, and Apply is only a security boundary if the user can read it.
-export const MAX_ACTIONS = 100;
+import { MAX_ACTIONS } from "../../../shared/proposal-card.js";
+export { MAX_ACTIONS };
 
 // Range.values evaluates any string starting with =, +, -, or @ as a formula,
 // exactly like Range.formulas. Model-proposed cell values can be influenced by

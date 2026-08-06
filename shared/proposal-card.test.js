@@ -5,6 +5,7 @@ import {
   previewGrid,
   writesBlind,
   partialApplyNotice,
+  MAX_ACTIONS,
 } from "./proposal-card.js";
 
 // The card IS the review boundary: Apply only means something if what it will
@@ -94,4 +95,12 @@ test("replace: an uncounted edit claims nothing rather than claiming zero", () =
   const d = describeAction({ type: "replace", find: "a", replace: "b", matchCount: null });
   assert.equal(d.summary, "Replace");
   assert.equal(describeAction({ type: "replace", find: "a", replace: "b" }).summary, "Replace");
+});
+
+// ---- Reviewability limit ---------------------------------------------------
+// The canonical value lives here in shared code; Excel re-exports it and Word
+// guards on it. One source of truth.
+
+test("MAX_ACTIONS is exported canonically as 100", () => {
+  assert.equal(MAX_ACTIONS, 100);
 });
