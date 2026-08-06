@@ -474,14 +474,51 @@ export function assertReviewableActions(actions) {
   return actions;
 }
 
+// ---- Provider / call-API error disclosure ---------------------------------
+//
+// The Word task pane renders `userErrorMessage(err)` into the user bubble for
+// every error from the send flow. Some of those errors originate from the
+// Provider call pipeline: shared/hermes.js `callApi`/`askHermes` tag every
+// failure with a stage marker, and taskpane.js wraps askHermes failures in a
+// `[stage:call-api]` marker. Their messages embed raw upstream HTTP response
+// bodies — which can carry the Provider's own stack traces, diagnostics, or
+// account details — plus, in the config-fetch stage, a resolved gateway URL.
+// That text must never reach the user.
+//
+// Policy boundary (explicit, testable): an error is a Provider/call failure
+// iff its message carries one of the call-pipeline stage tags below. Every
+// other error is a local, task-pane-raised error (validation, staleness,
+// oversized-Proposal) and is shown verbatim — including the exact oversized
+// message. The fixed message used for pipeline failures contains no upstream
+// text, no stack, no local path, and no line number.
+const PROVIDER_STAGE_TAG =
+  /\[(?:call-api:|api-(?:first|retry)\]|stage:call-api\]|config-fetch:|config-url\])/;
+
+/** Fixed, user-safe Vietnamese message for any Provider/call-API failure. */
+export const PROVIDER_UNAVAILABLE_MESSAGE =
+  "Không thể kết nối được với dịch vụ Hermes. Vui lòng thử lại sau.";
+
+/**
+ * True when `err` originates from the Provider call pipeline (network / HTTP
+ * requests made by askHermes/callApi, or the config fetch that precedes them).
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isProviderError(err) {
+  return PROVIDER_STAGE_TAG.test(String((err && err.message) || err));
+}
+
 /**
  * The only user-visible representation of an error: the safe, human-readable
- * message. The full error (including any stack trace) is logged by the caller
+ * message. Provider/call-API failures collapse to the fixed Vietnamese message
+ * (never raw upstream response text); local task-pane errors pass through
+ * verbatim. The full error (including any stack trace) is logged by the caller
  * via console.error — never rendered into the chat log.
  * @param {unknown} err
  * @returns {string}
  */
 export function userErrorMessage(err) {
+  if (isProviderError(err)) return PROVIDER_UNAVAILABLE_MESSAGE;
   return (err && err.message) || String(err);
 }
 
