@@ -2,7 +2,13 @@
 import { askHermes } from "../shared/hermes";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
-import { signature, contentSignature, resolveRange, chartType } from "../../../shared/parsers.js";
+import {
+  signature,
+  contentSignature,
+  resolveRange,
+  chartType,
+  trimHistory,
+} from "../../../shared/parsers.js";
 // Reply parsing, action descriptions and cell-value literalisation live in a
 // pure module so they can be tested without Office.js — see actions.test.js.
 import {
@@ -187,8 +193,7 @@ async function ask() {
     // next turn withheld it as unchanged.
     if (dataChanged) lastSig = sig;
     // Trim oldest turns, always preserving the system message at index 0.
-    if (history.length > MAX_HISTORY_MESSAGES + 1) {
-      history.splice(1, history.length - (MAX_HISTORY_MESSAGES + 1));
+    if (trimHistory(history, MAX_HISTORY_MESSAGES, { keepSystem: true }).trimmed) {
       // The dropped turns may have carried the only copy of the sheet
       // snapshot, so force the next turn to re-send fresh data.
       lastSig = null;

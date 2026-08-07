@@ -7,9 +7,6 @@
 
 import { askHermes } from "../shared/hermes.js";
 import {
-  columnIndexToLetters,
-  parseWordEdits,
-  parseWordTableChanges,
   appendMessage,
   appendTypingIndicator,
   removeTypingIndicator,
@@ -21,6 +18,12 @@ import {
   assertReviewableActions,
   userErrorMessage,
 } from "../../../shared/proposal-card.js";
+import {
+  columnIndexToLetters,
+  parseEdits as parseWordEdits,
+  parseTableChanges as parseWordTableChanges,
+  trimHistory,
+} from "../../../shared/parsers.js";
 import { createSelectionMgr, MAX_FULLDOC_CHARS } from "./selection-mgr.js";
 import { createProposalMgr, cellRefToPosition } from "./proposal-mgr.js";
 
@@ -338,9 +341,7 @@ ${data.text}`;
 
       messages.push({ role: "user", content: userText });
       messages.push({ role: "assistant", content: reply });
-      if (messages.length > MAX_HISTORY_MESSAGES) {
-        messages = messages.slice(-MAX_HISTORY_MESSAGES);
-      }
+      ({ history: messages } = trimHistory(messages, MAX_HISTORY_MESSAGES));
       setStatus("Sẵn sàng.");
     } catch (err) {
       removeTypingIndicator(typingEl);

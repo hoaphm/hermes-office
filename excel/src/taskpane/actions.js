@@ -2,7 +2,7 @@
 // Actions, describing them for the card, and making their values safe to write.
 // No Office.js here on purpose — this is the part that can be tested.
 import { extractJsonObject } from "../../../shared/parsers.js";
-import { MAX_ACTIONS } from "../../../shared/proposal-card.js";
+import { MAX_ACTIONS, describeAction } from "../../../shared/proposal-card.js";
 export { MAX_ACTIONS };
 
 // Range.values evaluates any string starting with =, +, -, or @ as a formula,
@@ -44,28 +44,14 @@ export function splitReply(raw) {
   };
 }
 
-// One line per Action for the Proposal card. This is what the user actually
-// reads before pressing Apply, so an unknown Action type is shown raw rather
-// than hidden.
+// One line per Action for the Apply-failure bubbles. Delegates to the shared
+// describeAction() so this and the Proposal card can never drift apart — the
+// card renders the richer {summary, diff, detail} shape; these flat bubbles
+// re-fold the diff into the summary line.
 export function describe(a) {
-  switch (a.type) {
-    case "setCell":
-      return `Set ${a.cell}:  "${a.old ?? ""}" → "${a.new}"`;
-    case "setCells":
-      return `Fill ${a.range} (${(a.values || []).length} rows)`;
-    case "format":
-      return `Format ${a.range}${a.numberFormat ? ` as ${a.numberFormat}` : ""}${a.bold ? " (bold)" : ""}`;
-    case "createTable":
-      return `Create table "${a.name || "Table"}" over ${a.range}`;
-    case "createChart":
-      return `Create ${a.chartType || "Column"} chart from ${a.dataRange}${a.title ? ` — "${a.title}"` : ""}`;
-    case "newSheet":
-      return `New sheet "${a.name}"`;
-    case "renameSheet":
-      return `Rename active tab → "${a.to || a.name}"`;
-    default:
-      return JSON.stringify(a);
-  }
+  const d = describeAction(a);
+  if (d.diff) return `${d.summary}:  "${d.diff.old}" → "${d.diff.new}"`;
+  return d.summary;
 }
 
 // Action types that change what an unqualified range means. `newSheet`

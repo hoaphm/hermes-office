@@ -11,6 +11,7 @@ import {
   hash,
   resolveRange,
   chartType,
+  trimHistory,
 } from "./parsers.js";
 
 test("columnIndexToLetters / columnLettersToIndex round-trip", () => {
@@ -159,4 +160,44 @@ test("contentSignature: changes when a cell value changes", () => {
 test("hash: deterministic and sensitive to input", () => {
   assert.equal(hash("abc"), hash("abc"));
   assert.notEqual(hash("abc"), hash("abd"));
+});
+
+// The two task panes share this policy but keep different array shapes:
+// Excel holds a standing system message at index 0 (trim in place, never
+// drop it); Word has none (cap the whole array from the end).
+test("trimHistory: Word-style keeps the newest turns without a system message", () => {
+  const msgs = Array.from({ length: 21 }, (_, i) => ({ role: "user", n: i }));
+  const { history, trimmed } = trimHistory(msgs, 20);
+  assert.equal(trimmed, true);
+  assert.equal(history.length, 20);
+  assert.equal(history[0].n, 1); // oldest turn dropped
+  assert.equal(history[19].n, 20); // newest kept
+  assert.equal(msgs.length, 21); // input untouched — Word reassigns
+});
+
+test("trimHistory: below the cap nothing is trimmed or copied", () => {
+  const msgs = [{ role: "user", n: 1 }];
+  const { history, trimmed } = trimHistory(msgs, 20);
+  assert.equal(trimmed, false);
+  assert.equal(history, msgs);
+});
+
+test("trimHistory: keepSystem splices in place and never drops index 0", () => {
+  const system = { role: "system" };
+  const turns = Array.from({ length: 21 }, (_, i) => ({ role: "user", n: i }));
+  const history = [system, ...turns];
+  const { history: out, trimmed } = trimHistory(history, 20, { keepSystem: true });
+  assert.equal(trimmed, true);
+  assert.equal(out, history); // Excel mutates the same array
+  assert.equal(out.length, 21); // system + 20 turns
+  assert.equal(out[0], system);
+  assert.equal(out[1].n, 1); // first (oldest) turn dropped, not the system message
+  assert.equal(out[20].n, 20);
+});
+
+test("trimHistory: keepSystem under the cap reports no trim", () => {
+  const history = [{ role: "system" }, { role: "user" }];
+  const { trimmed } = trimHistory(history, 20, { keepSystem: true });
+  assert.equal(trimmed, false);
+  assert.equal(history.length, 2);
 });

@@ -161,3 +161,26 @@ export function chartType(t) {
   };
   return m[String(t || "").toLowerCase().replace(/[^a-z]/g, "")] || "ColumnClustered";
 }
+
+// Cap replayed conversation turns so a long session doesn't grow the request
+// payload without limit — both task panes enforce this with the same policy
+// (MAX_HISTORY_MESSAGES) but different array shapes: Excel keeps a standing
+// system message at index 0 and trims in place; Word has no standing system
+// message and reassigns its `messages` variable each turn.
+//
+// @param {object[]} history
+// @param {number} max turns to keep (excluding the system message when keepSystem)
+// @param {{keepSystem?: boolean}} [opts] keepSystem: never drop index 0, cap
+//   everything after it (splices `history` in place). Otherwise caps the
+//   whole array from the end (returns a new array; does not mutate).
+// @returns {{history: object[], trimmed: boolean}}
+export function trimHistory(history, max, { keepSystem = false } = {}) {
+  if (keepSystem) {
+    const overflow = history.length - (max + 1);
+    if (overflow <= 0) return { history, trimmed: false };
+    history.splice(1, overflow);
+    return { history, trimmed: true };
+  }
+  if (history.length <= max) return { history, trimmed: false };
+  return { history: history.slice(-max), trimmed: true };
+}

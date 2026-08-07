@@ -117,10 +117,7 @@ test("splitReply substitutes placeholder prose when the reply is only a block", 
 
 test("describe renders each known action type", () => {
   assert.match(describe({ type: "setCell", cell: "A1", old: "1", new: "2" }), /A1.*"1".*"2"/);
-  assert.match(
-    describe({ type: "setCells", range: "A1:B2", values: [[1, 2]] }),
-    /A1:B2 \(1 rows\)/
-  );
+  assert.match(describe({ type: "setCells", range: "A1:B2", values: [[1, 2]] }), /A1:B2 · 1 rows/);
   assert.match(
     describe({ type: "format", range: "C1", numberFormat: "0.00", bold: true }),
     /0\.00.*bold/

@@ -7,13 +7,6 @@
 //   1. Keeps the shared bundle tiny and CSS-only friendly.
 //   2. Makes it trivial to unit-test the rendering in plain node.
 
-import {
-  columnIndexToLetters,
-  columnLettersToIndex,
-  parseEdits,
-  parseTableChanges,
-} from "./parsers.js";
-
 const esc = (s) =>
   String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -438,15 +431,6 @@ export function setBusy(btn, busy) {
   }
 }
 
-// ---- Word-specific helpers -------------------------------------------------
-
-export function parseWordEdits(raw) {
-  return parseEdits(raw);
-}
-
-export function parseWordTableChanges(raw) {
-  return parseTableChanges(raw);
-}
 
 // ---- Reviewability limit ---------------------------------------------------
 
@@ -522,4 +506,3 @@ export function userErrorMessage(err) {
   return (err && err.message) || String(err);
 }
 
-export { columnIndexToLetters, columnLettersToIndex };
