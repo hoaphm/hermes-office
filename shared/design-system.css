@@ -1,53 +1,74 @@
-/* Hermes Office design system — V2 Bold (monochrome chrome + brand accent).
- * B/W neutrals (≤6 shades) + a 2-color invert trick (--invert / --invert-fg)
- * to flip header and primary CTA without re-templating the HTML, plus ONE
- * brand accent per host scoped by a body class: `body.theme-word` (blue) /
- * `body.theme-excel` (green). Without a theme class the accent tokens fall
- * back to the neutral fg/bg pair, so unthemed pages stay pure monochrome.
+/* Hermes Office design system — V3 "Atelier" (warm paper + accent glow).
  *
- * Voice: Linear / Stripe Press / Vercel marketing — 2px borders, 14px radius,
- * weight contrast (500 body / 700 label), mini-labels with wide tracking.
- * No shadows, no gradients; color only on the accent tokens.
+ * Voice: a quiet, physical desk — warm paper surfaces, hairline edges,
+ * soft diffused shadows, and ONE saturated brand accent per host
+ * (`body.theme-word` blue / `body.theme-excel` green) that glows on
+ * interactive elements. Chrome stays near-monochrome; the accent does
+ * the talking.
  *
- * Spacing follows a 4px grid. Type is Inter with SF fallback (Office hosts
- * never need a font CDN — the system stack is good enough).
+ * Architecture rules kept from V2 (JS depends on them):
+ *   - every class/ID/data-* hook is unchanged (ds-*, theme-*, data-tone,
+ *     data-state, data-busy, data-empty, data-key, is-hidden, [hidden]);
+ *   - [hidden] stays authoritative (`display:none !important`);
+ *   - the pane is a 320px column: type stays small, spacing on a 4px grid;
+ *   - animations are transform/opacity only; `prefers-reduced-motion`
+ *     zeroes all of it.
+ *
+ * New in V3: Plus Jakarta Sans (ships a Vietnamese subset), ambient
+ * accent washes + film grain on FIXED body pseudo-layers, concentric
+ * "bezel" shells on the proposal card and composer, pill CTAs with a
+ * trailing icon disc, hairline borders + soft shadows instead of 2px
+ * strokes.
  */
-:root {
-  /* B/W ramp — every other color resolves through these. fg is a warm
-   * off-black rather than #000 (pure black reads harsh on white at 2px
-   * border weights); fg-2 is a step softer for secondary text. */
-  --bg: #ffffff;
-  --fg: #111112;
-  --fg-2: #3f3f42;
-  --muted: #707070;
-  --line: #d4d4d4;
-  --line-2: #ebebeb;
-  --soft: #f6f6f6;
-  /* Invert pair — used by header, primary CTA, .diff-new, .prop-head-on-dark.
-   * Pinned to fg/bg so a dark-mode swap only flips these two. */
-  --invert: #000;
-  --invert-fg: #fff;
 
-  /* Brand accent — neutral fallbacks; each host overrides via body.theme-*.
-   * --accent drives the primary CTA / send / status dot / brand mark,
-   * --accent-soft is a tint-level surface, --accent-ink is text ON accent. */
+:root {
+  /* Warm-paper neutrals. fg is a soft ink, never pure black. */
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --fg: #17181c;
+  --fg-2: #43454e;
+  --muted: #83858f;
+  --line: rgba(23, 24, 28, 0.14);
+  --line-2: rgba(23, 24, 28, 0.07);
+  --soft: #f1efe9;
+
+  /* Invert pair — proposal-card head, toasts, error bubbles. */
+  --invert: #14151a;
+  --invert-fg: #fbfaf7;
+
+  /* Brand accent — neutral fallbacks; each host overrides via
+   * body.theme-*. --accent-2 is the gradient partner, --accent-glow
+   * the shadow color used under accent elements. */
   --accent: var(--fg);
+  --accent-2: var(--fg-2);
   --accent-hover: var(--fg);
   --accent-soft: var(--soft);
   --accent-ink: var(--bg);
+  --accent-glow: rgba(23, 24, 28, 0.25);
 
-  /* Type stack. */
-  --font-ui: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, monospace;
+  /* Ambient wash + grain strengths (see body::before / body::after). */
+  --halo-alpha: 0.13;
+  --grain-alpha: 0.032;
 
-  /* Type scale — small, dense, designed for 320px column. */
+  /* Shadows — long, soft, low-opacity. Never a harsh near-black drop. */
+  --shadow-card: 0 18px 40px -22px rgba(23, 24, 28, 0.35);
+  --shadow-soft: 0 6px 20px -12px rgba(23, 24, 28, 0.25);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+
+  /* Type. Plus Jakarta Sans carries a Vietnamese subset; Segoe UI is
+   * the Office-native fallback on Windows. */
+  --font-ui: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
+  --font-mono: "Cascadia Mono", "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  /* Type scale — dense, for a 320px column. */
   --fs-100: 10.5px;
   --fs-200: 12px;
   --fs-300: 13px;
   --fs-400: 14px;
-  --fs-500: 16px;
-  --lh-tight: 1.3;
+  --fs-500: 17px;
+  --fs-600: 20px;
+  --lh-tight: 1.25;
   --lh-normal: 1.5;
 
   /* 4px grid. */
@@ -56,106 +77,120 @@
   --sp-3: 10px;
   --sp-4: 14px;
   --sp-5: 20px;
+  --sp-7: 32px;
 
-  /* Radii. */
-  --r-1: 6px;
-  --r-2: 8px;
+  /* Radii — concentric: shell > core. */
+  --r-shell: 22px;
+  --r-card: 20px;
+  --r-core: 14px;
+  --r-input: 16px;
+  --r-mark: 9px;
   --r-pill: 999px;
 
-  /* Border weights — the only "weight system" we have, kept on purpose. */
-  --bw-1: 1px;
-  --bw-2: 1.5px;
-  --bw-3: 2px;
-
-  /* Motion: a decelerating curve (fast out, soft land) gives every
-   * transition a springy, weighty feel instead of the mechanical
-   * symmetric ease-in-out. 150ms is the shortest duration that still
-   * reads as "animated" rather than "instant". */
-  --easing: cubic-bezier(0.22, 1, 0.36, 1);
-  --t-fast: 150ms;
+  /* Motion — a long decelerating curve everywhere; spring only for
+   * icon micro-moves. */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --t-fast: 160ms;
+  --t-slow: 420ms;
 }
 
-/* Per-host brand accent. Word = Office blue, Excel = Office green.
- * Light-mode accents are dark enough to carry white ink (≥4.5:1). */
+/* Per-host accent. Word = Office blue, Excel = Office green. */
 body.theme-word {
-  --accent: #185abd;
-  --accent-hover: #124a9e;
-  --accent-soft: #deecf9;
+  --accent: #1a5fd0;
+  --accent-2: #4a8af4;
+  --accent-hover: #14499f;
+  --accent-soft: #e3edfb;
   --accent-ink: #ffffff;
+  --accent-glow: rgba(26, 95, 208, 0.35);
 }
 
 body.theme-excel {
-  --accent: #107c41;
-  --accent-hover: #0b5c30;
-  --accent-soft: #daefdc;
+  --accent: #0e7c3f;
+  --accent-2: #26a35b;
+  --accent-hover: #0a5c2f;
+  --accent-soft: #e0f0e4;
   --accent-ink: #ffffff;
+  --accent-glow: rgba(14, 124, 63, 0.32);
 }
 
-/* Dark hosts flip to LIGHTER accents with dark ink, so the same components
- * keep their contrast on the near-black background. */
+/* Dark hosts flip to lighter accents with dark ink. */
 body.theme-word.dark,
 .dark body.theme-word {
-  --accent: #6cb2f5;
-  --accent-hover: #8ec4f8;
-  --accent-soft: #102a43;
-  --accent-ink: #0a0a0a;
+  --accent: #7ab7ff;
+  --accent-2: #4a8af4;
+  --accent-hover: #9ccaff;
+  --accent-soft: #14263d;
+  --accent-ink: #0b1018;
+  --accent-glow: rgba(122, 183, 255, 0.4);
 }
 
 body.theme-excel.dark,
 .dark body.theme-excel {
-  --accent: #55c188;
-  --accent-hover: #79cfa1;
-  --accent-soft: #0c2b1c;
-  --accent-ink: #0a0a0a;
+  --accent: #6fd39a;
+  --accent-2: #37a86a;
+  --accent-hover: #92e0b2;
+  --accent-soft: #122b1d;
+  --accent-ink: #08130d;
+  --accent-glow: rgba(111, 211, 154, 0.38);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) body.theme-word {
-    --accent: #6cb2f5;
-    --accent-hover: #8ec4f8;
-    --accent-soft: #102a43;
-    --accent-ink: #0a0a0a;
+    --accent: #7ab7ff;
+    --accent-2: #4a8af4;
+    --accent-hover: #9ccaff;
+    --accent-soft: #14263d;
+    --accent-ink: #0b1018;
+    --accent-glow: rgba(122, 183, 255, 0.4);
   }
 
   :root:not(.light) body.theme-excel {
-    --accent: #55c188;
-    --accent-hover: #79cfa1;
-    --accent-soft: #0c2b1c;
-    --accent-ink: #0a0a0a;
+    --accent: #6fd39a;
+    --accent-2: #37a86a;
+    --accent-hover: #92e0b2;
+    --accent-soft: #122b1d;
+    --accent-ink: #08130d;
+    --accent-glow: rgba(111, 211, 154, 0.38);
   }
 }
 
-/* The whole taskpane flips when an ancestor (or the body) gets .dark.
- * Two CSS vars change; everything else cascades. */
+/* The whole taskpane flips when an ancestor (or the body) gets .dark. */
 .dark {
-  --bg: #0a0a0a;
-  --fg: #f5f5f4;
-  --fg-2: #c9c9cc;
-  --muted: #8a8a8a;
-  --line: #2a2a2a;
-  --line-2: #1a1a1a;
-  --soft: #161616;
-  --invert: #fff;
-  --invert-fg: #000;
+  --bg: #0c0d10;
+  --surface: #15161b;
+  --fg: #f2f3f5;
+  --fg-2: #c4c6ce;
+  --muted: #8a8c96;
+  --line: rgba(255, 255, 255, 0.14);
+  --line-2: rgba(255, 255, 255, 0.07);
+  --soft: #1b1d23;
+  --invert: #f2f3f5;
+  --invert-fg: #0c0d10;
+  --halo-alpha: 0.16;
+  --grain-alpha: 0.05;
+  --shadow-card: 0 20px 44px -20px rgba(0, 0, 0, 0.75);
+  --shadow-soft: 0 8px 22px -12px rgba(0, 0, 0, 0.6);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --bg: #0a0a0a;
-    --fg: #f5f5f4;
-    --fg-2: #c9c9cc;
-    --muted: #8a8a8a;
-    --line: #2a2a2a;
-    --line-2: #1a1a1a;
-    --soft: #161616;
-    --invert: #fff;
-    --invert-fg: #000;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --t-fast: 0ms;
+    --bg: #0c0d10;
+    --surface: #15161b;
+    --fg: #f2f3f5;
+    --fg-2: #c4c6ce;
+    --muted: #8a8c96;
+    --line: rgba(255, 255, 255, 0.14);
+    --line-2: rgba(255, 255, 255, 0.07);
+    --soft: #1b1d23;
+    --invert: #f2f3f5;
+    --invert-fg: #0c0d10;
+    --halo-alpha: 0.16;
+    --grain-alpha: 0.05;
+    --shadow-card: 0 20px 44px -20px rgba(0, 0, 0, 0.75);
+    --shadow-soft: 0 8px 22px -12px rgba(0, 0, 0, 0.6);
+    --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.07);
   }
 }
 
@@ -185,6 +220,39 @@ body {
   overflow: hidden;
 }
 
+/* Ambient layer — two accent-hued washes bleeding from opposite corners.
+ * FIXED, pointer-events:none, z-index:-1 → never repaints on scroll. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      130% 70% at 0% 0%,
+      var(--accent-glow),
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 60% at 100% 100%,
+      var(--accent-glow),
+      transparent 55%
+    );
+  opacity: var(--halo-alpha);
+}
+
+/* Film grain — fixed SVG-noise layer, paper texture over the washes. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--grain-alpha);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
 /* ---- App shell ---------------------------------------------------------- */
 .ds-app {
   display: grid;
@@ -194,7 +262,7 @@ body {
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: transparent;
 }
 
 /* Grid items otherwise keep their min-content width. A pinned document
@@ -210,34 +278,34 @@ body {
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   background: var(--bg);
-  border-bottom: var(--bw-1) solid var(--line);
+  border-bottom: 1px solid var(--line-2);
 }
 
 .ds-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--fs-300);
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-400);
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
-/* Brand mark mirrors the shipped logo asset (white H on a black block),
- * so it rides the invert pair — NOT the per-host accent. Word and Excel
- * stay distinguishable by the accent used on CTAs, dots, and pins. */
+/* Brand mark — accent gradient block; the hosts stay distinguishable by
+ * the accent itself, so the mark rides it too. */
 .ds-brand .mark {
-  width: 22px;
-  height: 22px;
-  border-radius: var(--r-1);
-  background: var(--invert);
-  color: var(--invert-fg);
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-mark);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-ink);
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 12px;
+  font-weight: 800;
+  font-size: 12.5px;
   flex: none;
+  box-shadow: 0 4px 12px -4px var(--accent-glow), var(--shadow-inset);
 }
 
 .ds-brand svg {
@@ -245,15 +313,15 @@ body {
   height: 14px;
 }
 
+/* Legacy header status variant (kept for robustness; the dedicated
+ * status row below the header is the live one). */
 .ds-status {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: var(--fs-100);
   font-weight: 700;
-  color: var(--fg);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  color: var(--fg-2);
   max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -270,16 +338,13 @@ body {
 
 .ds-status[data-tone="busy"] .dot,
 .ds-status[data-tone="busy"] {
-  animation: ds-pulse 1.4s ease-in-out infinite;
-}
-
-.ds-status[data-tone="err"] {
-  color: var(--fg);
+  animation: ds-pulse 1.4s var(--ease) infinite;
 }
 
 @keyframes ds-pulse {
   50% {
-    opacity: 0.45;
+    opacity: 0.4;
+    transform: scale(0.85);
   }
 }
 
@@ -289,19 +354,22 @@ body {
   flex: none;
 }
 
-/* ---- Status row (dedicated bar below the header) ------------------------ */
-/* Dot + status text on its own horizontal strip, same visual weight as the
- * Excel meta row. Tone is mirrored onto the row (data-tone) by the taskpane
- * JS so the bar can tint while busy. */
+/* ---- Status row (dedicated floating pill below the header) -------------- */
+/* Tone is mirrored onto the row (data-tone) by the taskpane JS so the
+ * pill can tint while busy. */
 .ds-status-row {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px var(--sp-4);
-  background: var(--soft);
-  border-bottom: var(--bw-1) solid var(--line);
-  transition: background var(--t-fast) var(--easing);
+  margin: var(--sp-3) var(--sp-4) 0;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-soft), var(--shadow-inset);
+  transition: background var(--t-slow) var(--ease),
+    border-color var(--t-slow) var(--ease);
 }
 
 .ds-status-row .dot {
@@ -309,31 +377,35 @@ body {
   height: 7px;
   border-radius: 50%;
   background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
   flex: none;
 }
 
-/* Inside the dedicated row the status text can breathe: full width,
- * sentence case, one size up from the cramped header variant. */
 .ds-status-row .ds-status {
   flex: 1 1 auto;
   max-width: none;
   font-size: var(--fs-200);
   font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0.01em;
+  color: var(--fg-2);
   animation: none;
 }
 
 .ds-status-row[data-tone="busy"] {
   background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.ds-status-row[data-tone="busy"] .ds-status {
+  color: var(--fg);
 }
 
 .ds-status-row[data-tone="busy"] .dot {
-  animation: ds-pulse 1.4s ease-in-out infinite;
+  animation: ds-pulse 1.4s var(--ease) infinite;
 }
 
 .ds-status-row[data-tone="err"] .dot {
   background: var(--fg);
+  box-shadow: none;
 }
 
 /* ---- Compact meta row (Excel sheet/range/selection) ------------------ */
@@ -342,13 +414,15 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px var(--sp-4);
+  margin: var(--sp-2) var(--sp-4) 0;
+  padding: 5px 12px;
   font-size: var(--fs-100);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--muted);
-  background: var(--bg);
-  border-bottom: var(--bw-1) solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -368,35 +442,34 @@ body {
 
 .ds-meta-item[data-state="active"] {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .ds-meta-sep {
-  color: var(--muted);
+  color: var(--line);
   font-weight: 400;
 }
 
-/* ---- Context bar (legacy / Word) --------------------------------------- */
+/* ---- Context bar (Word chips) ------------------------------------------- */
 .ds-context {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--soft);
-  border-bottom: var(--bw-1) solid var(--line);
+  padding: var(--sp-3) var(--sp-4) 0;
 }
 
 .ds-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: var(--fs-100);
-  font-weight: 600;
-  padding: 5px 10px;
-  border: var(--bw-1) solid var(--fg);
+  font-weight: 700;
+  padding: 5px 11px;
+  border: 1px solid var(--line);
   border-radius: var(--r-pill);
-  color: var(--fg);
-  background: var(--bg);
+  color: var(--fg-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -410,16 +483,19 @@ body {
 }
 
 .ds-chip[data-state="pinned"] {
-  background: var(--fg);
-  color: var(--bg);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: var(--accent-ink);
+  box-shadow: 0 4px 12px -4px var(--accent-glow);
 }
 
 .ds-chip[data-state="warn"] {
   border-style: dashed;
+  border-color: var(--fg);
 }
 
 .ds-chip strong {
-  font-weight: 700;
+  font-weight: 800;
 }
 
 /* ---- Scrollable taskpane content --------------------------------------- */
@@ -436,18 +512,7 @@ body {
   overflow: visible;
 }
 
-/* ---- Log (chat history) ------------------------------------------------- */
-.ds-log {
-  padding: var(--sp-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-
-/* Scrollbars live on .ds-content — that is the element that actually
- * scrolls (.ds-log has overflow: visible inside it). The thumb uses
- * --line, not --fg: a full-contrast thumb on a 5px rail reads as a
- * smudge in dark mode. */
+/* Scrollbars live on .ds-content — the element that actually scrolls. */
 .ds-content::-webkit-scrollbar {
   width: 5px;
 }
@@ -462,9 +527,19 @@ body {
   background: transparent;
 }
 
+/* ---- Log (chat history) ------------------------------------------------- */
+.ds-log {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
 .ds-msg {
   display: flex;
   max-width: 100%;
+  /* Messages land with a weighted rise (appended once, never re-run). */
+  animation: ds-rise 380ms var(--ease) both;
 }
 
 .ds-msg[data-role="user"] {
@@ -478,91 +553,85 @@ body {
 .ds-bubble {
   max-width: 88%;
   padding: 10px 13px;
-  border-radius: 14px;
+  border-radius: var(--r-input);
   font-size: var(--fs-300);
   line-height: var(--lh-normal);
   font-weight: 500;
   word-wrap: break-word;
   white-space: pre-wrap;
-  /* Keep the last line from orphaning a single word; unsupported hosts
-   * ignore both declarations. */
   text-wrap: pretty;
-}
-
-/* Messages land with a short rise instead of popping in. The animation
- * runs once per element (bubbles are appended, never re-rendered). */
-.ds-msg {
-  animation: ds-rise 220ms var(--easing) both;
 }
 
 @keyframes ds-rise {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(10px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
+/* User = accent gradient fill, the pane's signature bubble. */
 .ds-msg[data-role="user"] .ds-bubble {
-  background: var(--fg);
-  color: var(--bg);
-  border-bottom-right-radius: 4px;
-  border-left: 2px solid var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-ink);
+  border-bottom-right-radius: 5px;
+  box-shadow: 0 8px 20px -10px var(--accent-glow);
 }
 
 .ds-msg[data-role="bot"] .ds-bubble {
-  background: var(--bg);
+  background: var(--surface);
   color: var(--fg);
-  border: var(--bw-2) solid var(--fg);
-  border-bottom-left-radius: 4px;
+  border: 1px solid var(--line-2);
+  border-bottom-left-radius: 5px;
+  box-shadow: var(--shadow-soft), var(--shadow-inset);
 }
 
+/* Warning is carried by a dashed edge (survives any palette). */
 .ds-msg[data-tone="warn"] .ds-bubble {
-  border-style: dashed;
+  border: 1px dashed var(--fg);
 }
 
-/* Tone prefixes are Vietnamese — the pane UI is vi-VN; English
- * "WARN/ERROR/DONE" tags read as leftover debug labels. */
+/* Tone prefixes are Vietnamese — the pane UI is vi-VN. */
 .ds-msg[data-tone="warn"] .ds-bubble::before {
   content: "Cảnh báo · ";
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: 800;
 }
 
 .ds-msg[data-tone="err"] .ds-bubble {
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--invert);
+  color: var(--invert-fg);
+  border: none;
+  box-shadow: var(--shadow-card);
 }
 
 .ds-msg[data-tone="err"] .ds-bubble::before {
   content: "Lỗi · ";
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: 800;
 }
 
 .ds-msg[data-tone="ok"] .ds-bubble {
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--invert);
+  color: var(--invert-fg);
+  border: none;
+  box-shadow: var(--shadow-card);
 }
 
 .ds-msg[data-tone="ok"] .ds-bubble::before {
   content: "Xong · ";
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: 800;
 }
 
-/* Timestamps/counts — tabular so digits don't jitter; sentence case
- * instead of all-caps (the pane is 320px wide; caps waste it). */
+/* Timestamps/counts — tabular so digits don't jitter. */
 .ds-meta {
   display: block;
   font-size: var(--fs-100);
   color: var(--muted);
   margin-top: 4px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -570,34 +639,58 @@ body {
   text-align: right;
 }
 
-/* ---- Proposal card ------------------------------------------------------ */
+/* ---- Proposal card (Double-Bezel) ----------------------------------------
+ * Outer shell: padded tray with a hairline ring. Inner core: the child
+ * bands (head / notice / list / foot) paint their own backgrounds and
+ * take the concentric inner radius. The card is the security boundary,
+ * so it gets the most physical treatment in the pane. */
 .ds-card {
-  border: var(--bw-3) solid var(--fg);
-  border-radius: var(--r-2);
-  background: var(--bg);
+  padding: 5px;
+  border-radius: var(--r-card);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card), var(--shadow-inset);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* The card is the security boundary (nothing is written until Apply),
-   * so its arrival should feel deliberate, not instant. */
-  animation: ds-rise 260ms var(--easing) both;
+  animation: ds-rise 380ms var(--ease) both;
+}
+
+.ds-card > :first-child {
+  border-top-left-radius: var(--r-core);
+  border-top-right-radius: var(--r-core);
+}
+
+.ds-card > :last-child {
+  border-bottom-left-radius: var(--r-core);
+  border-bottom-right-radius: var(--r-core);
 }
 
 .ds-card-head {
-  padding: 12px var(--sp-4);
+  padding: 11px var(--sp-4);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: var(--sp-2);
-  background: var(--fg);
-  color: var(--bg);
-  border-bottom: var(--bw-1) solid var(--fg);
+  background: var(--invert);
+  color: var(--invert-fg);
+}
+
+/* A whisper of accent on the dark band (fallback: plain invert). */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .ds-card-head {
+    background: linear-gradient(
+      135deg,
+      var(--invert),
+      color-mix(in srgb, var(--invert) 82%, var(--accent))
+    );
+  }
 }
 
 .ds-card-title {
   font-size: var(--fs-300);
-  font-weight: 700;
-  letter-spacing: -0.005em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -606,23 +699,21 @@ body {
 
 .ds-card-tag {
   font-size: var(--fs-100);
-  font-weight: 700;
+  font-weight: 800;
   padding: 4px 10px;
-  background: var(--bg);
-  color: var(--fg);
-  border-radius: var(--r-1);
-  letter-spacing: 0.05em;
+  background: var(--invert-fg);
+  color: var(--invert);
+  border-radius: var(--r-pill);
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   flex: none;
 }
 
-/* Banner for the Remainder a Partial Apply leaves behind: the card is no
-   longer what the user reviewed, and it has to say so before the second press.
-   Dashed, not coloured — warning is carried by border style throughout this
-   system (see .ds-msg[data-tone="warn"]), so it survives a monochrome host. */
+/* Banner for the Remainder a Partial Apply leaves behind: dashed edge —
+ * warning by border style so it survives any palette. */
 .ds-card-notice {
   padding: 9px var(--sp-4);
-  border-bottom: var(--bw-2) dashed var(--fg);
+  border-bottom: 1px dashed var(--fg);
   background: var(--soft);
   color: var(--fg);
   font-size: var(--fs-100);
@@ -640,10 +731,10 @@ body {
   flex: none;
   font-size: var(--fs-100);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border: var(--bw-1) dashed var(--fg);
-  border-radius: var(--r-1);
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border: 1px dashed var(--fg);
+  border-radius: var(--r-pill);
   color: var(--fg);
   white-space: nowrap;
 }
@@ -652,16 +743,26 @@ body {
   list-style: none;
   padding: 0;
   margin: 0;
+  background: var(--surface);
 }
 
 .ds-card-action {
   padding: 11px var(--sp-4);
-  border-bottom: var(--bw-1) solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
   font-size: var(--fs-200);
 }
 
 .ds-card-action:last-child {
   border-bottom: none;
+}
+
+/* Standalone action row (Word's "answer only" case renders one outside
+ * a card) — give it its own cardlet so it never looks orphaned. */
+.ds-preview > .ds-card-action {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-core);
+  box-shadow: var(--shadow-soft);
 }
 
 .ds-card-action .label {
@@ -676,11 +777,11 @@ body {
   width: 13px;
   height: 13px;
   flex: none;
+  color: var(--accent);
 }
 
 .ds-card-action .diff {
   margin-top: 6px;
-  display: grid;
   gap: 4px;
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -690,21 +791,22 @@ body {
 .ds-diff-new {
   max-height: 180px;
   overflow-y: auto;
-  padding: 5px 8px;
-  border-radius: var(--r-1);
+  padding: 6px 9px;
+  border-radius: 9px;
   word-break: break-word;
   white-space: pre-wrap;
   text-wrap: pretty;
 }
 
-/* Payload preview for actions that write a block of content (setCells). Scrolls
-   rather than growing, so one big Action can't push Apply off screen. */
+/* Payload preview for actions that write a block of content (setCells).
+ * Scrolls rather than growing, so one big Action can't push Apply off
+ * screen. */
 .ds-card-detail {
   margin-top: 6px;
   max-height: 180px;
   overflow: auto;
-  padding: 5px 8px;
-  border-radius: var(--r-1);
+  padding: 6px 9px;
+  border-radius: 9px;
   background: var(--soft);
   color: var(--fg);
   font-family: var(--font-mono);
@@ -719,13 +821,14 @@ body {
 }
 
 .ds-diff-new {
-  background: var(--fg);
-  color: var(--bg);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-ink);
+  box-shadow: 0 4px 14px -6px var(--accent-glow);
 }
 
 .ds-card-foot {
   padding: 10px var(--sp-4);
-  border-top: var(--bw-2) solid var(--fg);
+  border-top: 1px solid var(--line-2);
   display: flex;
   gap: 8px;
   background: var(--soft);
@@ -735,50 +838,59 @@ body {
   flex: 1 1 auto;
 }
 
+/* Preview wrappers (Word: .ds-preview on #preview; Excel: same class). */
+.ds-preview,
+#preview {
+  padding: 0 var(--sp-4) var(--sp-2);
+  display: grid;
+  gap: var(--sp-3);
+}
+
 /* ---- Buttons ------------------------------------------------------------ */
 .ds-btn {
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: var(--fs-200);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 9px 14px;
-  border-radius: var(--r-2);
-  border: var(--bw-2) solid var(--fg);
-  background: var(--bg);
+  letter-spacing: 0.01em;
+  padding: 9px 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
   color: var(--fg);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: background var(--t-fast) var(--easing),
-    color var(--t-fast) var(--easing), transform var(--t-fast) var(--easing);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
 }
 
 .ds-btn:hover {
-  background: var(--fg);
-  color: var(--bg);
+  transform: translateY(-1px);
+  background: var(--soft);
 }
 
 .ds-btn:focus-visible {
-  outline: var(--bw-2) solid var(--fg);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .ds-btn:active {
-  transform: translateY(1px);
+  transform: translateY(0) scale(0.98);
 }
 
 .ds-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
   color: var(--accent-ink);
+  box-shadow: 0 10px 24px -10px var(--accent-glow), var(--shadow-inset);
 }
 
 .ds-btn-primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
   color: var(--accent-ink);
 }
 
@@ -803,12 +915,6 @@ body {
   animation: ds-spin 0.7s linear infinite;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ds-btn[data-busy="true"]::after {
-    animation: none;
-  }
-}
-
 @keyframes ds-spin {
   to {
     transform: rotate(360deg);
@@ -818,25 +924,32 @@ body {
 .ds-icon-btn {
   width: 30px;
   height: 30px;
-  border-radius: var(--r-2);
-  background: var(--bg);
-  border: var(--bw-1) solid var(--fg);
-  color: var(--fg);
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--fg-2);
   display: grid;
   place-items: center;
   cursor: pointer;
   flex: none;
-  transition: background var(--t-fast) var(--easing),
-    color var(--t-fast) var(--easing);
+  box-shadow: var(--shadow-inset);
+  transition: transform var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 .ds-icon-btn:hover {
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--soft);
+  color: var(--fg);
+  transform: translateY(-1px);
+}
+
+.ds-icon-btn:active {
+  transform: scale(0.94);
 }
 
 .ds-icon-btn:focus-visible {
-  outline: var(--bw-2) solid var(--fg);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -855,28 +968,50 @@ body {
   animation: ds-spin 0.7s linear infinite;
 }
 
-/* ---- Footer (composer) -------------------------------------------------- */
+/* ---- Footer (composer) ---------------------------------------------------
+ * Double-Bezel island: the shell is a padded tray holding a borderless
+ * textarea and a circular accent send button. */
 .ds-foot {
   display: flex;
   gap: 8px;
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-2) var(--sp-4) var(--sp-4);
   background: var(--bg);
-  border-top: var(--bw-1) solid var(--line);
+  border-top: 1px solid var(--line-2);
   align-items: flex-end;
+}
+
+.ds-composer-shell {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 5px 5px 5px var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-shell);
+  box-shadow: var(--shadow-soft), var(--shadow-inset);
+  transition: border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+
+.ds-composer-shell:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-soft);
 }
 
 .ds-input {
   flex: 1 1 auto;
-  min-height: 38px;
+  min-width: 0;
+  min-height: 34px;
   max-height: 140px;
-  padding: 9px 12px;
+  padding: 7px 0;
   font-family: inherit;
   font-size: var(--fs-300);
   line-height: var(--lh-normal);
   color: var(--fg);
-  background: var(--bg);
-  border: var(--bw-2) solid var(--fg);
-  border-radius: var(--r-2);
+  background: transparent;
+  border: none;
   resize: none;
   outline: none;
 }
@@ -885,36 +1020,32 @@ body {
   color: var(--muted);
 }
 
-.ds-input:focus {
-  background: var(--soft);
-  border-color: var(--accent);
-}
-
 .ds-send {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-2);
-  background: var(--accent);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: var(--accent-ink);
-  border: var(--bw-2) solid var(--accent);
+  border: none;
   display: grid;
   place-items: center;
   cursor: pointer;
   flex: none;
-  transition: transform var(--t-fast) var(--easing),
-    opacity var(--t-fast) var(--easing);
+  box-shadow: 0 6px 16px -6px var(--accent-glow), var(--shadow-inset);
+  transition: transform var(--t-fast) var(--ease-spring),
+    opacity var(--t-fast) var(--ease);
 }
 
 .ds-send:hover:not([aria-disabled="true"]) {
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.05);
 }
 
 .ds-send:active:not([aria-disabled="true"]) {
-  transform: translateY(1px);
+  transform: scale(0.92);
 }
 
 .ds-send:focus-visible {
-  outline: var(--bw-2) solid var(--fg);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -925,8 +1056,8 @@ body {
 }
 
 .ds-send svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .ds-send[data-busy="true"]::after {
@@ -948,18 +1079,18 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 var(--sp-4) var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
   font-size: var(--fs-200);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--fg-2);
   cursor: pointer;
   user-select: none;
 }
 
 .ds-toggle-row input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--fg);
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -967,50 +1098,95 @@ body {
   display: none;
 }
 
-/* ---- Footer-level Apply CTA ---------------------------------------------
- * Owns its spacing so the taskpane HTML carries no inline styles. The
- * accent fill is the single loudest element in the pane, and it only
- * exists while a proposal is waiting for approval — hidden otherwise. */
+/* ---- Footer-level Apply CTA -----------------------------------------------
+ * The single loudest element in the pane; it only exists while a proposal
+ * waits for approval. Pill with a trailing icon disc ("button-in-button"). */
 .ds-apply {
-  margin: 0 var(--sp-4) var(--sp-3);
+  margin: var(--sp-1) var(--sp-4) var(--sp-3);
   width: calc(100% - var(--sp-4) * 2);
-  height: 42px;
-  padding: 0 var(--sp-4);
+  height: 46px;
+  padding: 0 var(--sp-2) 0 var(--sp-4);
+  font-size: var(--fs-300);
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  border-radius: var(--r-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
 }
 
-/* ---- Empty state ----------------------------------------------------------
- * First thing the user sees when the pane opens; hidden as soon as the
- * first message lands (taskpane JS toggles .is-hidden). The icon is a
- * 2px-stroke pen nib, matching the icon language of the header/send icons. */
+.ds-apply .ds-cta-disc {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-ink);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  flex: none;
+  box-shadow: 0 3px 10px -3px rgba(0, 0, 0, 0.35);
+  transition: transform var(--t-fast) var(--ease-spring);
+}
+
+.ds-apply:hover .ds-cta-disc {
+  transform: translateX(2px) scale(1.08);
+}
+
+.ds-apply .ds-cta-disc svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ---- Empty state -------------------------------------------------------------
+ * First impression: eyebrow pill, accent medallion, staggered hint cards.
+ * Hidden via .is-hidden as soon as the first message lands. */
 .ds-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 12px;
-  padding: 44px 28px 32px;
-  animation: ds-rise 300ms var(--easing) both;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-5) var(--sp-7);
+  animation: ds-rise 480ms var(--ease) both;
 }
 
 .ds-empty.is-hidden {
   display: none;
 }
 
+.ds-eyebrow {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+}
+
 .ds-empty-icon {
-  width: 44px;
-  height: 44px;
-  color: var(--muted);
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  color: var(--accent);
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface));
+  border: 1px solid var(--line-2);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 28px -14px var(--accent-glow), var(--shadow-inset);
 }
 
 .ds-empty-icon svg {
-  width: 100%;
-  height: 100%;
+  width: 24px;
+  height: 24px;
 }
 
 .ds-empty-title {
-  font-size: var(--fs-500);
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  font-size: var(--fs-600);
+  font-weight: 800;
+  letter-spacing: -0.025em;
   line-height: var(--lh-tight);
   text-wrap: balance;
 }
@@ -1027,32 +1203,53 @@ body {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
-  margin-top: 6px;
+  margin-top: var(--sp-1);
 }
 
 .ds-empty-hint li {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: var(--sp-3);
   font-size: var(--fs-200);
-  font-weight: 500;
-  color: var(--fg);
+  font-weight: 600;
+  color: var(--fg-2);
   text-align: left;
-  line-height: var(--lh-normal);
+  line-height: 1.4;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-core);
+  padding: 9px 12px;
+  box-shadow: var(--shadow-soft), var(--shadow-inset);
+  animation: ds-rise 480ms var(--ease) both;
+}
+
+.ds-empty-hint li:nth-child(1) {
+  animation-delay: 80ms;
+}
+.ds-empty-hint li:nth-child(2) {
+  animation-delay: 160ms;
+}
+.ds-empty-hint li:nth-child(3) {
+  animation-delay: 240ms;
 }
 
 .ds-empty-hint li::before {
   content: "→";
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-soft);
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
   flex: none;
 }
 
-/* ---- Typing indicator -------------------------------------------------------
- * Rendered as a bot message while Hermes is thinking. The three dots are
- * transform/opacity-only (GPU-friendly) and stagger by 140ms each. */
+/* ---- Typing indicator ---------------------------------------------------- */
 .ds-typing .ds-bubble {
   display: inline-flex;
   align-items: center;
@@ -1064,8 +1261,8 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--muted);
-  animation: ds-typing-pulse 1.1s var(--easing) infinite;
+  background: var(--accent);
+  animation: ds-typing-pulse 1.1s var(--ease) infinite;
 }
 
 .ds-typing .ds-dot:nth-child(2) {
@@ -1089,12 +1286,6 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ds-typing .ds-dot {
-    animation: none;
-  }
-}
-
 /* ---- Toast (fixed bottom-center) --------------------------------------- */
 .ds-toast-host {
   position: fixed;
@@ -1112,31 +1303,31 @@ body {
 
 .ds-toast {
   pointer-events: auto;
-  padding: 10px 12px;
-  border-radius: var(--r-2);
-  background: var(--fg);
-  color: var(--bg);
+  padding: 10px 14px;
+  border-radius: var(--r-core);
+  background: var(--invert);
+  color: var(--invert-fg);
   font-size: var(--fs-200);
   font-weight: 600;
-  border: var(--bw-2) solid var(--fg);
+  border: 1px solid var(--invert);
+  box-shadow: var(--shadow-card);
   display: flex;
   align-items: center;
   gap: 8px;
-  animation: ds-toast-in var(--t-fast) var(--easing);
+  animation: ds-toast-in 260ms var(--ease);
   word-break: break-word;
 }
 
 .ds-toast[data-tone="err"] {
-  background: var(--bg);
+  background: var(--surface);
   color: var(--fg);
-  border-style: dashed;
+  border: 1px dashed var(--fg);
 }
 
 .ds-toast[data-tone="warn"] {
   background: var(--soft);
   color: var(--fg);
-  border-color: var(--fg);
-  border-style: dashed;
+  border: 1px dashed var(--fg);
 }
 
 .ds-toast .ds-toast-dismiss {
@@ -1156,18 +1347,18 @@ body {
 }
 
 .ds-toast .ds-toast-dismiss:focus-visible {
-  outline: var(--bw-1) solid currentColor;
+  outline: 1px solid currentColor;
   border-radius: 3px;
 }
 
 @keyframes ds-toast-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px) scale(0.97);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -1184,11 +1375,26 @@ body {
   border: 0;
 }
 
-/* ---- Utilities ------------------------------------------------------------ */
-/* [hidden] is display:none by UA default, but any rule that sets display
+/* ---- Motion preferences --------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-slow: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---- Utilities --------------------------------------------------------------
+ * [hidden] is display:none by UA default, but any rule that sets display
  * on the element (e.g. .ds-toggle-row's flex) wins over the UA style.
- * This keeps the attribute authoritative everywhere, so the taskpanes
- * can toggle visibility with el.hidden instead of inline styles. */
+ * This keeps the attribute authoritative everywhere. */
 [hidden] {
   display: none !important;
 }
