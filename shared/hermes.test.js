@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askHermes, callApi } from "./hermes.js";
+import { askHermes, callApi, GATEWAY_ERROR_HEADER } from "./hermes.js";
 
 const CONFIG = { name: "Custom", model: "test-model" };
 
@@ -106,6 +106,64 @@ test("askHermes retries once on timeout", async () => {
   };
   await assert.rejects(() => askHermes([{ role: "user", content: "hi" }]), /kịp thời/);
   assert.equal(callCount, 2);
+});
+
+// ---- Hop check --------------------------------------------------------------
+// The point of the check is that the two hops are probed separately, and that
+// the upstream probe costs nothing — see ADR-0005.
+
+test("checkHops probes the Upstream Hop with a GET that spends no tokens", async () => {
+  const seen = [];
+  global.fetch = async (url, init) => {
+    seen.push({ url, init });
+    if (url === "/config.json") return { ok: true, status: 200, json: async () => CONFIG };
+    return { ok: true, status: 200, headers: new Map() };
+  };
+  const mod = await import("./hermes.js?hop=ok");
+  const result = await mod.checkHops();
+  assert.deepEqual(
+    { local: result.local.ok, upstream: result.upstream.ok },
+    { local: true, upstream: true },
+  );
+  const probe = seen[seen.length - 1];
+  assert.equal(probe.url, "/v1/models");
+  assert.equal(probe.init.method, "GET");
+  assert.equal(probe.init.body, undefined, "a probe must not post a completion");
+});
+
+// Any answer the Gateway did not write itself proves it reached the Provider,
+// whatever the Provider thought of the request.
+test("checkHops counts an unmarked Provider rejection as a reachable Upstream Hop", async () => {
+  global.fetch = async (url) => {
+    if (url === "/config.json") return { ok: true, status: 200, json: async () => CONFIG };
+    return { ok: false, status: 404, headers: new Map() };
+  };
+  const mod = await import("./hermes.js?hop=404");
+  assert.equal((await mod.checkHops()).upstream.ok, true);
+});
+
+test("checkHops reports an unreachable Upstream Hop only on the Gateway's own mark", async () => {
+  global.fetch = async (url) => {
+    if (url === "/config.json") return { ok: true, status: 200, json: async () => CONFIG };
+    return { ok: false, status: 502, headers: new Map([[GATEWAY_ERROR_HEADER, "502"]]) };
+  };
+  const mod = await import("./hermes.js?hop=marked");
+  const { upstream } = await mod.checkHops();
+  assert.equal(upstream.ok, false);
+  assert.equal(upstream.error.hermes.gateway, true);
+});
+
+test("checkHops skips the Upstream Hop when the Local Hop is down", async () => {
+  let calls = 0;
+  global.fetch = async () => {
+    calls++;
+    throw new TypeError("Failed to fetch");
+  };
+  const mod = await import("./hermes.js?hop=down");
+  const result = await mod.checkHops();
+  assert.equal(result.local.ok, false);
+  assert.equal(result.upstream.skipped, true);
+  assert.equal(calls, 1, "no upstream probe travels through a Gateway that is not there");
 });
 
 // ---- Custom Function gate ---------------------------------------------------

@@ -52,6 +52,12 @@ export const caddyQuote = (s) =>
 // the key on the way out. The add-in always calls /v1/chat/completions;
 // handle_path strips that /v1, and the rewrite re-adds whatever path prefix the
 // Provider actually uses (/v1 for most, none for some, deeper for Azure).
+//
+// The handle_errors clause belongs in here, not beside it in Caddyfile.example:
+// setup rewrites only what is between the markers, so anything outside them
+// never reaches a Caddyfile that already exists — the feature would work on
+// fresh installs and silently not on every current one. Generated here, one
+// `npm run setup` repairs any install.
 export function proxyBlock(provider, apiKey) {
   const url = new URL(provider);
   const prefix = url.pathname.replace(/\/+$/, "");
@@ -64,9 +70,18 @@ export function proxyBlock(provider, apiKey) {
     `        header_up Authorization "Bearer ${caddyQuote(apiKey)}"`,
     "    }",
     "}",
+    "",
+    "# Mark responses the Gateway generated itself, so the Task Pane can tell an",
+    "# Upstream Hop failure (Caddy never reached the Provider — what a change of",
+    "# network looks like) from the same status code sent by the Provider, which",
+    "# passes through unmarked. See ADR-0005 and shared/failures.js.",
+    "handle_errors {",
+    '    header X-Hermes-Gateway-Error "{err.status_code}"',
+    '    respond "Local Gateway error" {err.status_code}',
+    "}",
     MARKER_END,
   ]
-    .filter(Boolean)
+    .filter((line) => line !== null)
     .join("\n");
 }
 

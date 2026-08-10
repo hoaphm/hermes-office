@@ -23,6 +23,27 @@ test("proxyBlock attaches the key as a bearer token", () => {
   assert.match(proxyBlock("https://p.test/v1", "sk-abc"), /Authorization "Bearer sk-abc"/);
 });
 
+// ADR-0005: the Task Pane can only tell an Upstream Hop failure from a status
+// the Provider sent itself if the Gateway marks its own error responses. The
+// clause lives inside the marker pair so re-running setup repairs a Caddyfile
+// that predates it — outside, an existing install would never receive it.
+test("proxyBlock marks the Gateway's own error responses", () => {
+  const block = proxyBlock("https://p.test/v1", "k");
+  assert.match(block, /handle_errors \{/);
+  assert.match(block, /header X-Hermes-Gateway-Error "\{err\.status_code\}"/);
+  assert.ok(
+    block.indexOf("handle_errors") < block.indexOf("# <<< hermes-proxy <<<"),
+    "must sit inside the marker pair, or setup can never add it to an existing Caddyfile",
+  );
+});
+
+test("the error mark discloses no Provider text", () => {
+  const block = proxyBlock("https://p.test/v1", "k");
+  const respond = block.split("\n").find((line) => line.includes("respond"));
+  assert.match(respond, /respond "Local Gateway error"/);
+  assert.equal(respond.includes("err.message"), false);
+});
+
 test("caddyQuote escapes quotes, backslashes and placeholder braces", () => {
   assert.equal(caddyQuote('a"b'), 'a\\"b');
   assert.equal(caddyQuote("a\\b"), "a\\\\b");

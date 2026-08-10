@@ -9,6 +9,37 @@
 const DEFAULT_TIMEOUT_MS = 60000;
 let cachedConfig;
 
+// Set by the Local Gateway's own `handle_errors` block on a response it
+// generated itself, rather than one it proxied back from the Provider. It is
+// the only way to tell "the Gateway could not reach the Provider" (an Upstream
+// Hop failure — what a change of network looks like) from "the Provider itself
+// answered 502", which are otherwise the same status code. See ADR-0005.
+export const GATEWAY_ERROR_HEADER = "X-Hermes-Gateway-Error";
+
+// Facts about a failure, recorded where they are known and read by
+// shared/failures.js, which alone decides which Disclosed Failure they add up
+// to. Transport records; policy classifies. Never a message — the whole point
+// is that no upstream text travels with these.
+function withDetail(err, detail) {
+  err.hermes = detail;
+  return err;
+}
+
+// Re-wrapping an error for its stage tag would otherwise drop the facts the
+// throw site recorded, leaving failures.js nothing to classify but a string.
+function carry(next, previous) {
+  if (previous && previous.hermes) next.hermes = previous.hermes;
+  return next;
+}
+
+// A stubbed fetch in tests need not supply Headers, and neither does every
+// WebView error path.
+function gatewayGenerated(res) {
+  const headers = res && res.headers;
+  if (!headers || typeof headers.get !== "function") return false;
+  return headers.get(GATEWAY_ERROR_HEADER) != null;
+}
+
 // Match on `name`, not `instanceof`: callApi re-wraps every failure in a plain
 // Error carrying only the original's name, so an `err instanceof TypeError`
 // test here could never be true and genuine network failures went un-retried.
@@ -50,18 +81,29 @@ async function loadConfig() {
   try {
     configUrl = gatewayUrl("/config.json");
   } catch (err) {
-    throw new Error(`[config-url] ${err.message || err}`);
+    throw withDetail(new Error(`[config-url] ${err.message || err}`), {
+      stage: "config-url",
+    });
   }
+  let status;
   try {
     const res = await fetch(configUrl);
+    status = res.status;
     if (!res.ok) throw new Error(`config ${res.status}`);
     data = await res.json();
   } catch (err) {
-    throw new Error(`[config-fetch:${configUrl}] ${err.message || err}`);
+    // No status means the request never got an answer: on the Local Hop that
+    // is the Gateway not listening at all.
+    throw withDetail(new Error(`[config-fetch:${configUrl}] ${err.message || err}`), {
+      stage: "config-fetch",
+      status,
+    });
   }
   const model = String(data.model || "");
   if (!model) {
-    throw new Error("config.json cần có model. Chạy: npm run setup");
+    throw withDetail(new Error("config.json cần có model. Chạy: npm run setup"), {
+      stage: "config-model",
+    });
   }
   // Custom Functions reach the Provider from a worksheet cell, outside the
   // Apply boundary — a workbook that merely CONTAINS `=HERMES.*` fires them on
@@ -82,6 +124,7 @@ export async function callApi(
   { idempotencyKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {}
 ) {
   let phase = "load-config";
+  const detail = { stage: phase };
   try {
     const config = await loadConfig();
     phase = "build-headers";
@@ -91,6 +134,7 @@ export async function callApi(
     phase = "build-url";
     const url = gatewayUrl("/v1/chat/completions");
     phase = "fetch";
+    detail.stage = phase;
     const res = await fetchWithTimeout(
       url,
       {
@@ -101,23 +145,103 @@ export async function callApi(
       timeoutMs,
     );
     phase = "read-response";
+    detail.stage = phase;
+    detail.status = res.status;
+    detail.gateway = gatewayGenerated(res);
     const body = await res.text();
     if (!res.ok) throw new Error(`Provider ${res.status}: ${body}`);
     // Some OpenAI-compatible routers append an SSE terminator (`data: [DONE]`)
     // after an otherwise normal JSON completion. Response.json() rejects that
     // body; parse its leading JSON object instead. Standard JSON still works.
     const marker = body.indexOf("data: [DONE]");
-    const data = JSON.parse((marker === -1 ? body : body.slice(0, marker)).trim());
+    let data;
+    try {
+      data = JSON.parse((marker === -1 ? body : body.slice(0, marker)).trim());
+    } catch {
+      detail.badPayload = true;
+      throw new Error(`Provider bad payload: ${body.slice(0, 200)}`);
+    }
     const choice = data && data.choices && data.choices[0];
     if (!choice || !choice.message) {
+      detail.badPayload = true;
       throw new Error(`Provider bad payload: ${JSON.stringify(data).slice(0, 200)}`);
     }
     return choice.message.content;
   } catch (err) {
     const tagged = new Error(`[call-api:${phase}] ${err.message || err}`);
     tagged.name = err && err.name ? err.name : "Error";
+    // loadConfig already recorded the more specific stage; do not overwrite it.
+    withDetail(tagged, (err && err.hermes) || { ...detail, name: tagged.name });
     throw tagged;
   }
+}
+
+// ---- Hop check --------------------------------------------------------------
+//
+// Probe the two hops separately so a user can find out which one is broken
+// without having to provoke a failure with a real question. Costs no tokens:
+// the Local Hop is the config fetch the task pane already makes, and the
+// Upstream Hop is a GET the Provider need not even like — *any* answer that
+// the Gateway did not generate itself proves the Gateway reached it, which is
+// the only thing being asked. See CONTEXT.md for the two hops.
+
+async function probeLocalHop(timeoutMs) {
+  let status;
+  try {
+    const res = await fetchWithTimeout(gatewayUrl("/config.json"), {}, timeoutMs);
+    status = res.status;
+    if (!res.ok) throw new Error(`config ${res.status}`);
+    const data = await res.json();
+    if (!String(data.model || "")) {
+      throw withDetail(new Error("[config-model] no model"), { stage: "config-model" });
+    }
+    return { ok: true, error: null };
+  } catch (err) {
+    if (err && err.hermes) return { ok: false, error: err };
+    return {
+      ok: false,
+      error: withDetail(new Error(`[config-fetch:probe] ${err.message || err}`), {
+        stage: "config-fetch",
+        status,
+        name: err && err.name,
+      }),
+    };
+  }
+}
+
+async function probeUpstreamHop(timeoutMs) {
+  try {
+    const res = await fetchWithTimeout(gatewayUrl("/v1/models"), { method: "GET" }, timeoutMs);
+    if (!gatewayGenerated(res)) return { ok: true, error: null };
+    return {
+      ok: false,
+      error: withDetail(new Error("[call-api:probe] gateway did not reach the Provider"), {
+        stage: "read-response",
+        status: res.status,
+        gateway: true,
+      }),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: withDetail(new Error(`[call-api:probe] ${err.message || err}`), {
+        stage: "fetch",
+        name: err && err.name,
+      }),
+    };
+  }
+}
+
+/**
+ * Test the Local Hop and the Upstream Hop, in that order. The Upstream Hop is
+ * not probed when the Local Hop is down: every upstream request travels
+ * through the Gateway, so the answer would say nothing about the Provider.
+ * @param {{timeoutMs?: number}} [opts]
+ */
+export async function checkHops({ timeoutMs = 15000 } = {}) {
+  const local = await probeLocalHop(timeoutMs);
+  if (!local.ok) return { local, upstream: { ok: false, error: null, skipped: true } };
+  return { local, upstream: await probeUpstreamHop(timeoutMs) };
 }
 
 // Kept name for minimal caller diff and backward compatibility.
@@ -129,15 +253,18 @@ export async function askHermes(
     return await callApi(messages, { idempotencyKey, timeoutMs });
   } catch (err) {
     if (!isTimeoutOrNetworkError(err)) {
-      throw new Error(`[api-first] ${err.message || err}`);
+      throw carry(new Error(`[api-first] ${err.message || err}`), err);
     }
     try {
       return await callApi(messages, { idempotencyKey, timeoutMs });
     } catch (err2) {
       if (isTimeoutOrNetworkError(err2)) {
-        throw new Error("Provider không phản hồi kịp thời, vui lòng thử lại.");
+        throw withDetail(
+          new Error("Provider không phản hồi kịp thời, vui lòng thử lại."),
+          { stage: "fetch", name: "TimeoutError" },
+        );
       }
-      throw new Error(`[api-retry] ${err2.message || err2}`);
+      throw carry(new Error(`[api-retry] ${err2.message || err2}`), err2);
     }
   }
 }

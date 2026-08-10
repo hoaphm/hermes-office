@@ -5,7 +5,7 @@
 // machines). All Apply logic lives in proposal-mgr.js (immutable target). This
 // file wires DOM events to those modules and renders results. No Word.run here.
 
-import { askHermes } from "../shared/hermes.js";
+import { askHermes, checkHops } from "../shared/hermes.js";
 import {
   appendMessage,
   appendTypingIndicator,
@@ -16,8 +16,8 @@ import {
   mountContextBar,
   renderProposalCard,
   assertReviewableActions,
-  userErrorMessage,
 } from "../../../shared/proposal-card.js";
+import { userErrorMessage, hopReport } from "../../../shared/failures.js";
 import {
   columnIndexToLetters,
   parseEdits as parseWordEdits,
@@ -255,7 +255,11 @@ ${data.text}`;
       try {
         reply = await askHermes(payload);
       } catch (e) {
-        throw new Error(`[stage:call-api] ${e.message || e}`);
+        const wrapped = new Error(`[stage:call-api] ${e.message || e}`);
+        // Keep the facts the call pipeline recorded; without them the failure
+        // can only be classified as UNKNOWN. See shared/failures.js.
+        if (e && e.hermes) wrapped.hermes = e.hermes;
+        throw wrapped;
       }
       removeTypingIndicator(typingEl);
       typingEl = null;
@@ -460,4 +464,15 @@ ${data.text}`;
   });
   applyBtn.addEventListener("click", applyEdit);
   newChatBtn.addEventListener("click", newChat);
+
+  document.getElementById("hopcheck").addEventListener("click", async () => {
+    if (busy) return;
+    setStatus("Đang kiểm tra kết nối…", "busy");
+    const result = await checkHops();
+    const healthy = result.local.ok && result.upstream.ok;
+    addMsg("bot", hopReport(result).join("\n"), {
+      tone: healthy ? "ok" : "err",
+    });
+    setStatus(healthy ? "Sẵn sàng." : "Lỗi.", healthy ? undefined : "err");
+  });
 });

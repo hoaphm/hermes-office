@@ -63,6 +63,11 @@ Add-ins → Upload My Add-in**, chọn `word/dist/manifest.xml` cho Word và
 giữa hai dòng mốc `# >>> hermes-proxy >>>` trong `Caddyfile`, nên các chỉnh tay
 khác của bạn trong file đó vẫn còn.
 
+**Cài đặt có từ trước ADR-0005 cần chạy lại `npm run setup` một lần.** Khối giữa
+hai mốc giờ còn chứa `handle_errors` — thứ giúp task pane phân biệt "Gateway
+không với tới Provider" với "Provider trả về lỗi". Thiếu nó thì add-in vẫn chạy
+bình thường, chỉ là một `502` sẽ luôn bị đọc thành lỗi của Provider.
+
 Cài phi tương tác (script, cài lại hàng loạt):
 
 ```bash
@@ -96,6 +101,31 @@ tính của mình, bằng cách thêm vào `config.json` rồi tải lại Excel
 
 Xem [ADR-0003](./docs/adr/0003-custom-functions-are-off-by-default.md). `npm run
 setup` giữ nguyên lựa chọn này khi bạn đổi Provider.
+
+## Khi gọi bị lỗi
+
+Một lời gọi đi qua **hai chặng**, và chúng hỏng vì những lý do khác nhau:
+
+```
+Task Pane ──Local Hop──▶ Local Gateway ──Upstream Hop──▶ Provider
+```
+
+Bấm biểu tượng **Kiểm tra kết nối** trên đầu task pane để thử riêng từng chặng —
+không tốn token nào, và không cần phải gõ một câu hỏi thật để kích lỗi ra. Kết
+quả là hai dòng, ví dụ:
+
+```
+Local Hop: OK
+Upstream Hop: Local Gateway không kết nối được tới Provider. Kiểm tra mạng, rồi bấm Hỏi lại.
+```
+
+Task pane **không bao giờ hiện nguyên văn lỗi của Provider** — không body phản
+hồi, không stack, không đường dẫn. Thay vào đó nó nói đúng một trong các trạng
+thái đã đặt tên sẵn, mỗi trạng thái kèm đúng một việc cần làm (Gateway chưa
+chạy → `npm run serve`; khóa bị từ chối → `npm run setup`; sai tên model → sửa
+tên model; v.v.). Muốn xem lỗi gốc thì mở console của task pane, hoặc log Caddy ở
+`~/Library/Logs/hermes-office/caddy.error.log`. Xem
+[ADR-0005](./docs/adr/0005-disclosed-failures-are-a-fixed-set.md).
 
 ## Chạy Gateway tự động (tùy chọn, macOS)
 

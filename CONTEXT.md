@@ -28,6 +28,32 @@ merely contains one fires it on open, so this is the one path where document
 content alone can reach the Provider. Off unless explicitly enabled; see
 ADR-0003.
 
+### Reaching the Provider
+
+**Local Hop**:
+The leg from the Task Pane to the Local Gateway — `config.json` and
+`/v1/chat/completions`, both same-origin. It crosses no network the user's
+router can see, so it fails only when the Gateway is not running or not
+configured.
+_Avoid_: the connection, the request, calling the API
+
+**Upstream Hop**:
+The leg from the Local Gateway to the Provider. This is the one that crosses the
+internet, so it is the leg a change of network can break — and the leg no
+observer outside the Gateway can see. Whether the Gateway reached the Provider
+at all is knowledge only the Gateway has; it must say so rather than let the
+Task Pane guess from a status code.
+_Avoid_: the backend call, upstream, the proxy request
+
+**Disclosed Failure**:
+What the user is told when a call fails: one of a fixed, named set, each naming
+the hop that broke and the one thing the user can do about it. The set is closed
+by construction and carries no text from the Provider — not its response body,
+not a status line, not a stack. Two situations that call for the same user
+action are the same Disclosed Failure; two that call for different actions are
+never merged into one. See ADR-0005.
+_Avoid_: error message, error string, the error
+
 ### The edit cycle
 
 **Snapshot**:

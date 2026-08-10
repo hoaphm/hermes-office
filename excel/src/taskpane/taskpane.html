@@ -18,6 +18,27 @@
           <span>Hermes</span>
         </div>
         <div class="ds-actions">
+          <!-- Tests the two hops separately (see CONTEXT.md) so a broken call
+               can be located without provoking one with a real question. -->
+          <button
+            id="hopcheck"
+            class="ds-icon-btn"
+            type="button"
+            title="Kiểm tra kết nối"
+            aria-label="Kiểm tra kết nối"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12h4l2.5 7 5-14 2.5 7h4" />
+            </svg>
+          </button>
           <button
             id="newchat"
             class="ds-icon-btn"

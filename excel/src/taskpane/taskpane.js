@@ -1,5 +1,5 @@
-/* global Office, Excel, document, window */
-import { askHermes } from "../shared/hermes";
+/* global Office, Excel, document, window, console */
+import { askHermes, checkHops } from "../shared/hermes";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
 import {
@@ -33,6 +33,10 @@ import {
   writesBlind,
   partialApplyNotice,
 } from "../../../shared/proposal-card.js";
+// Error disclosure is policy, not rendering — ADR-0005. Until this import
+// existed, Excel printed `e.message` straight into the chat log, which is the
+// upstream response body the Word task pane already refuses to show.
+import { userErrorMessage, hopReport } from "../../../shared/failures.js";
 
 const MAX_ROWS = 500;
 // Very wide sheets can otherwise blow up the snapshot payload sent to Hermes.
@@ -92,6 +96,14 @@ Office.onReady(() => {
 
   askBtn.addEventListener("click", ask);
   newChatBtn.addEventListener("click", newChat);
+  document.getElementById("hopcheck").addEventListener("click", async () => {
+    if (busy) return;
+    setStatus("Đang kiểm tra kết nối…", "busy");
+    const result = await checkHops();
+    const healthy = result.local.ok && result.upstream.ok;
+    addBubble("bot", hopReport(result).join("\n"), healthy ? "ok" : "err");
+    setStatus(healthy ? "Sẵn sàng." : "Lỗi.", healthy ? undefined : "err");
+  });
   applyBtn.addEventListener("click", apply);
   promptEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -230,7 +242,8 @@ async function ask() {
     );
   } catch (e) {
     if (typeof window.__hermesTyping === "function") window.__hermesTyping(false);
-    addBubble("bot", "⚠ " + e.message, "err");
+    console.error(e); // full detail (incl. stack) to the console only
+    addBubble("bot", "⚠ " + userErrorMessage(e), "err");
     setStatus("Lỗi.", "err");
   } finally {
     setBusy(false);
@@ -619,7 +632,8 @@ async function apply() {
       if (typeof window.__hermesRefreshContext === "function") window.__hermesRefreshContext(null);
     }
   } catch (e) {
-    const errText = "⚠ " + e.message;
+    console.error(e); // full detail (incl. stack) to the console only
+    const errText = "⚠ " + userErrorMessage(e);
     addBubble("bot", errText, "err");
     setStatus("Lỗi.", "err");
     showToast(errText, { tone: "err", timeout: 6000 });

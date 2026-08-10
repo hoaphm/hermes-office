@@ -3,10 +3,8 @@ import assert from "node:assert/strict";
 import {
   MAX_ACTIONS,
   assertReviewableActions,
-  userErrorMessage,
-  isProviderError,
-  PROVIDER_UNAVAILABLE_MESSAGE,
 } from "../../../shared/proposal-card.js";
+import { userErrorMessage } from "../../../shared/failures.js";
 
 // The Word reviewability gate. taskpane.js itself cannot be unit-tested in
 // plain node (Office.onReady, document, Word.run), so the pure guard it calls
@@ -60,80 +58,9 @@ test("userErrorMessage falls back to String(err) when there is no message", () =
   assert.equal(userErrorMessage(undefined), "undefined");
 });
 
-// ---- Provider / call-API disclosure policy --------------------------------
-// Known call-pipeline stage failures must collapse to the fixed Vietnamese
-// message (no upstream response text, stack, path, or line number), while
-// local task-pane errors pass through verbatim.
-
-test("isProviderError classifies call-pipeline stage tags", () => {
-  assert.ok(
-    isProviderError(new Error("[call-api:read-response] Provider 500: boom")),
-  );
-  assert.ok(
-    isProviderError(new Error("[call-api:fetch] TypeError: Failed to fetch")),
-  );
-  assert.ok(
-    isProviderError(
-      new Error("[api-first] [call-api:read-response] Provider 503: x"),
-    ),
-  );
-  assert.ok(isProviderError(new Error("[api-retry] [call-api:fetch] boom")));
-  // taskpane.js wraps askHermes failures in [stage:call-api].
-  assert.ok(
-    isProviderError(
-      new Error(
-        "[stage:call-api] [api-first] [call-api:read-response] Provider 500: x",
-      ),
-    ),
-  );
-  // config fetch is a network/HTTP stage of the call pipeline.
-  assert.ok(
-    isProviderError(
-      new Error(
-        "[config-fetch:https://localhost:8643/config.json] network error",
-      ),
-    ),
-  );
-  // Local task-pane errors are NOT provider failures.
-  assert.ok(
-    !isProviderError(
-      new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn"),
-    ),
-  );
-  assert.ok(
-    !isProviderError(new Error("Không còn tìm thấy bảng của đề xuất này.")),
-  );
-  assert.ok(!isProviderError(new Error("[stage:read-doc] boom")));
-});
-
-test("provider failures show the fixed message and never the raw body", () => {
-  const raw =
-    'Provider 500: {"error":{"message":"internal","trace":"/app/src/line 42"}}';
-  const err = new Error(
-    `[stage:call-api] [api-first] [call-api:read-response] ${raw}`,
-  );
-  const shown = userErrorMessage(err);
-  assert.equal(shown, PROVIDER_UNAVAILABLE_MESSAGE);
-  assert.ok(
-    !shown.includes(raw),
-    "raw provider response body must never reach the user",
-  );
-  assert.ok(!shown.includes("trace"), "no provider diagnostic in the bubble");
-  assert.ok(
-    !shown.includes("line 42"),
-    "no provider line number in the bubble",
-  );
-  assert.ok(!shown.includes("\n"), "single-line, no stack");
-});
-
-test("config-fetch failures collapse to the fixed message", () => {
-  const err = new Error(
-    "[config-fetch:https://localhost:8643/config.json] Failed to fetch",
-  );
-  const shown = userErrorMessage(err);
-  assert.equal(shown, PROVIDER_UNAVAILABLE_MESSAGE);
-  assert.ok(!shown.includes("localhost"), "no local gateway URL in the bubble");
-});
+// The Disclosed Failure set itself is covered by shared/failures.test.js. What
+// matters here is that an oversized-Proposal rejection is NOT one of them and
+// keeps reaching the user word for word.
 
 test("local task-pane errors are preserved verbatim", () => {
   assert.equal(
@@ -161,9 +88,4 @@ test("local task-pane errors are preserved verbatim", () => {
     userErrorMessage(new Error("[stage:read-doc] boom")),
     "[stage:read-doc] boom",
   );
-});
-
-test("the already-safe askHermes timeout message passes through unchanged", () => {
-  const safe = "Provider không phản hồi kịp thời, vui lòng thử lại.";
-  assert.equal(userErrorMessage(new Error(safe)), safe);
 });
