@@ -46,11 +46,7 @@ test("gate: onSelectionChanged is a no-op while reading", async () => {
   await sel.onSelectionChanged(); // must be ignored
   handle.end();
 
-  assert.equal(
-    runWordCalled,
-    false,
-    "runWord must not be called while reading",
-  );
+  assert.equal(runWordCalled, false, "runWord must not be called while reading");
   assert.equal(sel.getPinnedText(), "", "pin must not change while reading");
 });
 
@@ -84,11 +80,7 @@ test("gate: focus-loss (empty selection) does not clear pin while reading", asyn
   await sel.onSelectionChanged(); // must be ignored (bug #3)
   handle.end();
 
-  assert.equal(
-    sel.getPinnedText(),
-    "pinned passage",
-    "pin must survive focus-loss",
-  );
+  assert.equal(sel.getPinnedText(), "pinned passage", "pin must survive focus-loss");
 });
 
 // ---- serialising the handler ----------------------------------------------
@@ -122,7 +114,7 @@ test("pin: overlapping selection changes never run two batches at once", async (
   assert.equal(
     maxInFlight,
     1,
-    "a second selectionChanged must queue behind the first, not race it",
+    "a second selectionChanged must queue behind the first, not race it"
   );
 });
 
@@ -147,7 +139,7 @@ test("pin: a locked Pin survives an empty selection", async () => {
   assert.equal(
     sel.getPinnedText(),
     "pinned passage",
-    "the Proposal's Pin must survive focus leaving the document",
+    "the Proposal's Pin must survive focus leaving the document"
   );
 });
 
@@ -200,11 +192,7 @@ test("reconcile: bookmark text wins over stale cached memory", async () => {
   const data = await sel.getSelectionData();
   handle.end();
 
-  assert.equal(
-    sel.getPinnedText(),
-    "edited text",
-    "memory must follow the document",
-  );
+  assert.equal(sel.getPinnedText(), "edited text", "memory must follow the document");
   assert.equal(data.type, "text");
   assert.equal(data.text, "edited text");
 });
@@ -267,10 +255,7 @@ test("captureTarget: table target carries a stable sig", async () => {
   handle.end();
 
   assert.equal(target.kind, "table");
-  assert.equal(
-    target.sig,
-    tableSignature({ rowCount: 2, columnCount: 2, values: cellTexts }),
-  );
+  assert.equal(target.sig, tableSignature({ rowCount: 2, columnCount: 2, values: cellTexts }));
 });
 
 test("captureTarget: fulldoc target has kind fulldoc", async () => {
@@ -324,7 +309,7 @@ test("tableSignature is stable for identical contents", () => {
         ["a", "b"],
         ["c", "d"],
       ],
-    }),
+    })
   );
 });
 
@@ -386,10 +371,7 @@ test("countOccurrences counts each find with the options Apply will use", async 
         },
       },
     });
-  const counts = await createSelectionMgr({ runWord }).countOccurrences([
-    "the",
-    "xyz",
-  ]);
+  const counts = await createSelectionMgr({ runWord }).countOccurrences(["the", "xyz"]);
   assert.equal(counts.get("the"), 12);
   assert.equal(counts.get("xyz"), 1);
   assert.deepEqual(seen[0][1], { matchCase: false });
@@ -403,11 +385,7 @@ test("countOccurrences skips finds Word.search would reject as too long", async 
       document: { body: { search: () => ({ items: [], load: () => {} }) } },
     });
   const counts = await createSelectionMgr({ runWord }).countOccurrences([long]);
-  assert.equal(
-    counts.has(long),
-    false,
-    "no entry means the card makes no claim",
-  );
+  assert.equal(counts.has(long), false, "no entry means the card makes no claim");
 });
 
 test("countOccurrences reports null rather than a wrong number when Word fails", async () => {

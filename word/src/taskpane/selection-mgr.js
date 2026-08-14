@@ -96,35 +96,30 @@ export function createSelectionMgr({ runWord }) {
   // stale after opening a new file.
   function readFullBodyViaFile() {
     return new Promise((resolve) => {
-      Office.context.document.getFileAsync(
-        Office.FileType.Text,
-        { sliceSize: 65536 },
-        (result) => {
-          if (result.status !== Office.AsyncResultStatus.Succeeded)
-            return resolve("");
-          const file = result.value;
-          const sliceCount = file.sliceCount;
-          let cur = 0;
-          let text = "";
-          const next = () => {
-            if (cur >= sliceCount) {
+      Office.context.document.getFileAsync(Office.FileType.Text, { sliceSize: 65536 }, (result) => {
+        if (result.status !== Office.AsyncResultStatus.Succeeded) return resolve("");
+        const file = result.value;
+        const sliceCount = file.sliceCount;
+        let cur = 0;
+        let text = "";
+        const next = () => {
+          if (cur >= sliceCount) {
+            file.closeAsync();
+            return resolve(text.trim());
+          }
+          file.getSliceAsync(cur, (slice) => {
+            if (slice.status === Office.AsyncResultStatus.Succeeded) {
+              text += slice.data;
+              cur += 1;
+              next();
+            } else {
               file.closeAsync();
-              return resolve(text.trim());
+              resolve(text.trim());
             }
-            file.getSliceAsync(cur, (slice) => {
-              if (slice.status === Office.AsyncResultStatus.Succeeded) {
-                text += slice.data;
-                cur += 1;
-                next();
-              } else {
-                file.closeAsync();
-                resolve(text.trim());
-              }
-            });
-          };
-          next();
-        },
-      );
+          });
+        };
+        next();
+      });
     });
   }
 
@@ -177,8 +172,7 @@ export function createSelectionMgr({ runWord }) {
   async function getPinnedSelectionFromBookmark() {
     try {
       return await runWithRetry((context) => {
-        const range =
-          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        const range = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
         range.load(["isNullObject", "text"]);
         return context.sync().then(() => {
           if (range.isNullObject) return null;
@@ -197,17 +191,12 @@ export function createSelectionMgr({ runWord }) {
     if (!expectedText || !supportsBookmarks()) return;
     try {
       await runWithRetry(async (context) => {
-        const bmRange =
-          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        const bmRange = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
         bmRange.load(["isNullObject", "text"]);
         const sel = context.document.getSelection();
         sel.load("text");
         await context.sync();
-        if (
-          !bmRange.isNullObject &&
-          (bmRange.text || "").trim() === expectedText
-        )
-          return;
+        if (!bmRange.isNullObject && (bmRange.text || "").trim() === expectedText) return;
         let target = null;
         if ((sel.text || "").trim() === expectedText) {
           target = sel;
@@ -334,7 +323,7 @@ export function createSelectionMgr({ runWord }) {
       }
       await context.sync();
       const values = rangeRows.map((rangeRow) =>
-        rangeRow.map((range) => (range.text || "").trim()),
+        rangeRow.map((range) => (range.text || "").trim())
       );
       rows.push({
         rowCount: table.rowCount,
@@ -389,9 +378,7 @@ export function createSelectionMgr({ runWord }) {
     const tableHasData =
       tableRows &&
       tableRows.length > 0 &&
-      tableRows.some((t) =>
-        t.values.flat().some((v) => (v || "").trim().length > 0),
-      );
+      tableRows.some((t) => t.values.flat().some((v) => (v || "").trim().length > 0));
     if (tableHasData && selText.length > 0) {
       if (tableRows.length > 1) {
         targetKind = "multi";
@@ -413,11 +400,7 @@ export function createSelectionMgr({ runWord }) {
       effectiveSelText = selText;
     } else if (selText.length > 0) {
       effectiveSelText = selText;
-    } else if (
-      selectionIsPinned &&
-      pinnedFromBookmark &&
-      pinnedFromBookmark.length > 0
-    ) {
+    } else if (selectionIsPinned && pinnedFromBookmark && pinnedFromBookmark.length > 0) {
       // Live selection empty but a valid pin exists (focus left the doc).
       effectiveSelText = pinnedFromBookmark;
     } else if (selectionIsPinned && pinnedText.trim().length > 0) {
@@ -476,8 +459,7 @@ export function createSelectionMgr({ runWord }) {
           return { find, ranges };
         });
         await context.sync();
-        for (const { find, ranges } of searches)
-          counts.set(find, ranges.items.length);
+        for (const { find, ranges } of searches) counts.set(find, ranges.items.length);
       });
     } catch {
       // Leave the reserved nulls in place.

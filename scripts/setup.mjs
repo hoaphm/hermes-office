@@ -26,6 +26,23 @@ const ask = (q) => {
   if (!rl) rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((res) => rl.question(q + " ", res));
 };
+
+// Same as ask, but the typed answer is NOT echoed (SEC-04: the API key must not
+// appear on screen for screen-share/session-recording/shoulder-surfing).
+// readline echoes through its private _writeToOutput, so silence it while the
+// secret is being typed; print the prompt and the newline ourselves.
+const askSecret = (q) =>
+  new Promise((res) => {
+    if (!rl) rl = createInterface({ input: process.stdin, output: process.stdout });
+    process.stdout.write(q + " ");
+    const original = rl._writeToOutput.bind(rl);
+    rl._writeToOutput = () => {};
+    rl.question("", (ans) => {
+      rl._writeToOutput = original;
+      process.stdout.write("\n");
+      res(ans);
+    });
+  });
 const closeInput = () => {
   if (rl) rl.close();
 };
@@ -173,7 +190,7 @@ async function main() {
     die(`URL Provider không hợp lệ: "${provider}".`);
   }
 
-  const apiKey = envKey || (await ask("Khóa API:")).trim();
+  const apiKey = envKey || (await askSecret("Khóa API:")).trim();
   if (!apiKey) die("khóa API là bắt buộc.");
 
   // Taken verbatim. An earlier version stripped a `vendor/` prefix for

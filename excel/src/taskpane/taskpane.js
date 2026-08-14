@@ -297,16 +297,31 @@ async function getSnapshot(sheetName) {
       await context.sync();
       if (sel.address) {
         let sv = sel.values;
+        let selRows = false;
+        let selCols = false;
+        let selBytes = false;
         if (sv && sv.length > MAX_ROWS) {
           sv = sv.slice(0, MAX_ROWS);
+          selRows = true;
         }
         if (sv && sv.length > 0 && sv[0].length > MAX_COLS) {
           sv = sv.map((r) => r.slice(0, MAX_COLS));
+          selCols = true;
         }
         if (sv && JSON.stringify(sv).length > MAX_SNAPSHOT_BYTES) {
           sv = [];
+          selBytes = true;
         }
-        selection = { address: sel.address, values: sv || [] };
+        // BUG-06: truncating silently lied to the model — it answered about a
+        // selection it was never shown. The flags reach the prompt via
+        // dataNote() so the model knows the range was cut.
+        selection = {
+          address: sel.address,
+          values: sv || [],
+          rowsTruncated: selRows,
+          colsTruncated: selCols,
+          bytesTruncated: selBytes,
+        };
       }
     } catch {
       /* no selection or multi-area — ignore */
@@ -369,7 +384,12 @@ function dataNote(s) {
   }
 
   if (s.selection) {
-    head += `\n\n[Selected range ${s.selection.address}. Current selection values:]\n${JSON.stringify(s.selection.values)}`;
+    const notes = [];
+    if (s.selection.rowsTruncated) notes.push(`first ${MAX_ROWS} rows`);
+    if (s.selection.colsTruncated) notes.push(`first ${MAX_COLS} cols`);
+    if (s.selection.bytesTruncated) notes.push("further truncated to fit size limit");
+    const suffix = notes.length ? ` (${notes.join(", ")})` : "";
+    head += `\n\n[Selected range ${s.selection.address}${suffix}. Current selection values:]\n${JSON.stringify(s.selection.values)}`;
   }
   return head;
 }

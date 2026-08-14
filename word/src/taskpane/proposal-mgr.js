@@ -41,9 +41,7 @@ export function hasChainedEdits(edits) {
   return edits.some((edit, i) => {
     if (!edit.replace) return false;
     const replace = fold(edit.replace);
-    return edits.some(
-      (other, j) => i !== j && other.find && replace.includes(fold(other.find)),
-    );
+    return edits.some((other, j) => i !== j && other.find && replace.includes(fold(other.find)));
   });
 }
 
@@ -77,9 +75,7 @@ export function createProposalMgr({ target, runWord, showToast }) {
         rangeRows.push(rangeRow);
       }
       await context.sync();
-      const values = rangeRows.map((row) =>
-        row.map((range) => (range.text || "").trim()),
-      );
+      const values = rangeRows.map((row) => row.map((range) => (range.text || "").trim()));
       const snapSig = `${table.rowCount}x${table.columnCount}:${JSON.stringify(values)}`;
       if (snapSig === sig) matches.push(table);
     }
@@ -106,11 +102,7 @@ export function createProposalMgr({ target, runWord, showToast }) {
     const fromBody = await matchingTables(context, context.document.body, sig);
     if (fromBody.length > 0) return fromBody.length === 1 ? fromBody[0] : null;
 
-    const fromSelection = await matchingTables(
-      context,
-      context.document.getSelection(),
-      sig,
-    );
+    const fromSelection = await matchingTables(context, context.document.getSelection(), sig);
     return fromSelection.length === 1 ? fromSelection[0] : null;
   }
 
@@ -123,18 +115,14 @@ export function createProposalMgr({ target, runWord, showToast }) {
       const table = await findProposalTable(context, target.sig);
       if (!table)
         throw new Error(
-          "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
+          "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại."
         );
       table.load(["rowCount", "columnCount"]);
       await context.sync();
 
       const cells = [];
       for (const change of changes) {
-        const pos = cellRefToPosition(
-          change.cell,
-          table.rowCount,
-          table.columnCount,
-        );
+        const pos = cellRefToPosition(change.cell, table.rowCount, table.columnCount);
         if (!pos || change.old === undefined)
           throw new Error("Đề xuất có ô không hợp lệ. Hãy hỏi lại Hermes.");
         const range = table.getCell(pos.row, pos.col).body.getRange();
@@ -142,14 +130,8 @@ export function createProposalMgr({ target, runWord, showToast }) {
         cells.push({ change, range });
       }
       await context.sync();
-      if (
-        cells.some(
-          ({ change, range }) => (range.text || "").trim() !== change.old,
-        )
-      )
-        throw new Error(
-          "Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.",
-        );
+      if (cells.some(({ change, range }) => (range.text || "").trim() !== change.old))
+        throw new Error("Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.");
       for (const { change, range } of cells) {
         const inserted = range.insertText(String(change.value), "Replace");
         if (markRed) inserted.font.color = "#FF0000";
@@ -172,9 +154,7 @@ export function createProposalMgr({ target, runWord, showToast }) {
    */
   async function applyFulldocEdits(edits, { markRed }) {
     if (hasChainedEdits(edits))
-      throw new Error(
-        "Đề xuất có các chỉnh sửa chồng chéo. Hãy hỏi lại Hermes.",
-      );
+      throw new Error("Đề xuất có các chỉnh sửa chồng chéo. Hãy hỏi lại Hermes.");
     return runWord(async (context) => {
       let applied = 0;
       let skipped = 0;
@@ -197,13 +177,10 @@ export function createProposalMgr({ target, runWord, showToast }) {
             continue;
           }
           if (ranges.items.length > 1) {
-            notify(
-              `"${edit.find}" xuất hiện ${ranges.items.length} lần — sẽ thay TẤT CẢ.`,
-              {
-                tone: "warn",
-                timeout: 4000,
-              },
-            );
+            notify(`"${edit.find}" xuất hiện ${ranges.items.length} lần — sẽ thay TẤT CẢ.`, {
+              tone: "warn",
+              timeout: 4000,
+            });
           }
           ranges.items.forEach((r) => {
             const inserted = r.insertText(String(edit.replace), "Replace");
@@ -236,14 +213,12 @@ export function createProposalMgr({ target, runWord, showToast }) {
       let bmRange = null;
       let bmText = null;
       if (canUseBookmark) {
-        bmRange =
-          context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
+        bmRange = context.document.getBookmarkRangeOrNullObject(PIN_BOOKMARK_NAME);
         bmRange.load(["isNullObject", "text"]);
         await context.sync();
         if (!bmRange.isNullObject) bmText = (bmRange.text || "").trim();
       }
-      const bookmarkMatchesProposal =
-        bmText !== null && (!captured || bmText === captured);
+      const bookmarkMatchesProposal = bmText !== null && (!captured || bmText === captured);
       let inserted = null;
       if (bookmarkMatchesProposal) {
         inserted = bmRange.insertText(text, "Replace");
@@ -257,13 +232,13 @@ export function createProposalMgr({ target, runWord, showToast }) {
           inserted = ranges.items[0].insertText(text, "Replace");
         } else {
           throw new Error(
-            "Không thể xác định duy nhất đoạn văn bản gốc. Hãy chọn lại đoạn đó rồi hỏi lại Hermes.",
+            "Không thể xác định duy nhất đoạn văn bản gốc. Hãy chọn lại đoạn đó rồi hỏi lại Hermes."
           );
         }
       } else if (captured) {
         // Too long to search for and the bookmark no longer matches it.
         throw new Error(
-          "Đoạn văn bản gốc không còn được ghim. Hãy chọn lại đoạn cần thay rồi hỏi lại.",
+          "Đoạn văn bản gốc không còn được ghim. Hãy chọn lại đoạn cần thay rồi hỏi lại."
         );
       } else {
         throw new Error("Không có văn bản được chọn để áp dụng.");

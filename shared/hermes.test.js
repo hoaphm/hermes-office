@@ -108,6 +108,47 @@ test("askHermes retries once on timeout", async () => {
   assert.equal(callCount, 2);
 });
 
+// BUG-03: chat turns used to send no Idempotency-Key, so the timeout retry
+// above ran a second full completion with nothing for the Provider to dedupe.
+// The retry must carry the SAME key as the first attempt.
+test("askHermes sends the same Idempotency-Key on both retry attempts", async () => {
+  const keys = [];
+  let apiCalls = 0;
+  global.fetch = async (url, init) => {
+    if (url === "/config.json") return { ok: true, json: async () => CONFIG };
+    apiCalls++;
+    keys.push(init.headers["Idempotency-Key"]);
+    const err = new Error("timeout");
+    err.name = "TimeoutError";
+    throw err;
+  };
+  await assert.rejects(() => askHermes([{ role: "user", content: "hi" }]));
+  assert.equal(apiCalls, 2);
+  assert.ok(keys[0], "first attempt carries a key");
+  assert.equal(keys[1], keys[0], "the retry must reuse the first attempt's key");
+  assert.notEqual(
+    keys[0],
+    keys[1] + "x",
+    "keys are non-trivial (not just present-but-empty)"
+  );
+});
+
+// A fresh user turn gets a FRESH key: re-asking the same question is a new
+// request, not a dedupe of the old one — otherwise the second ask would return
+// the first cached answer instead of a new completion.
+test("askHermes uses a fresh Idempotency-Key per call", async () => {
+  const keys = [];
+  global.fetch = async (url, init) => {
+    if (url === "/config.json") return { ok: true, json: async () => CONFIG };
+    keys.push(init.headers["Idempotency-Key"]);
+    return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+  };
+  await askHermes([{ role: "user", content: "hi" }]);
+  await askHermes([{ role: "user", content: "hi" }]);
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1], "two turns must not share a key");
+});
+
 // ---- Hop check --------------------------------------------------------------
 // The point of the check is that the two hops are probed separately, and that
 // the upstream probe costs nothing — see ADR-0005.

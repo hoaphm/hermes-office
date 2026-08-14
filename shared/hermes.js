@@ -49,6 +49,17 @@ function isTimeoutOrNetworkError(err) {
   return name === "TypeError" || name === "AbortError" || name === "TimeoutError";
 }
 
+// A unique-per-turn key so a Provider that honours Idempotency-Key can dedupe
+// a timeout retry instead of running (and billing) the completion twice. Fresh
+// per call — NOT content-derived, so a user who re-asks the same question gets
+// a genuinely new answer rather than the cached first one. Cheap, collision is
+// not a correctness problem (worst case: a dedup that never fires).
+let turnSeq = 0;
+function nextTurnKey() {
+  turnSeq += 1;
+  return `${Date.now().toString(36)}-${turnSeq.toString(36)}`;
+}
+
 // Office for Mac's WKWebView rejects an AbortSignal passed to fetch() with
 // "The string did not match the expected pattern" (both AbortSignal.timeout()
 // and AbortController.signal). Race the fetch against a timer instead — no
@@ -249,14 +260,22 @@ export async function askHermes(
   messages,
   { idempotencyKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {}
 ) {
+  // BUG-03: chat turns (Word/Excel task panes) used to send no Idempotency-Key,
+  // so a timeout retry below ran a SECOND full completion with nothing for the
+  // Provider to dedupe against. Generate one per logical turn — the retry must
+  // carry the SAME key as the first attempt, while a fresh user turn gets a
+  // fresh key (a re-ask must produce a new answer, not a cached one). Callers
+  // that want content-derived keys (Custom Functions, for recalc-storm dedup)
+  // pass their own.
+  const key = idempotencyKey || nextTurnKey();
   try {
-    return await callApi(messages, { idempotencyKey, timeoutMs });
+    return await callApi(messages, { idempotencyKey: key, timeoutMs });
   } catch (err) {
     if (!isTimeoutOrNetworkError(err)) {
       throw carry(new Error(`[api-first] ${err.message || err}`), err);
     }
     try {
-      return await callApi(messages, { idempotencyKey, timeoutMs });
+      return await callApi(messages, { idempotencyKey: key, timeoutMs });
     } catch (err2) {
       if (isTimeoutOrNetworkError(err2)) {
         throw withDetail(

@@ -1,10 +1,7 @@
+/* global globalThis */
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  createProposalMgr,
-  hasChainedEdits,
-  cellRefToPosition,
-} from "./proposal-mgr.js";
+import { createProposalMgr, hasChainedEdits, cellRefToPosition } from "./proposal-mgr.js";
 
 function makeContext(state = {}) {
   const loadable = (props) => ({ ...props, load: () => {} });
@@ -14,6 +11,16 @@ function makeContext(state = {}) {
       getSelection: () =>
         loadable({
           tables: { items: state.selectionTables ?? state.tables ?? [] },
+        }),
+      getBookmarkRangeOrNullObject: () =>
+        loadable({
+          isNullObject: state.bookmarkText == null,
+          text: state.bookmarkText ?? "",
+          insertText: (next, mode) => {
+            const inserted = { font: {}, insertBookmark: () => {} };
+            if (state.onBookmarkInsert) state.onBookmarkInsert(next, mode, inserted);
+            return inserted;
+          },
         }),
       body: {
         load: () => {},
@@ -58,7 +65,7 @@ test("hasChainedEdits detects a chain that only matches case-insensitively", () 
       { find: "cat", replace: "Dog" },
       { find: "dog", replace: "wolf" },
     ]),
-    true,
+    true
   );
 });
 
@@ -68,7 +75,7 @@ test("hasChainedEdits ignores an edit with an empty find", () => {
       { find: "", replace: "x" },
       { find: "unrelated", replace: "y" },
     ]),
-    false,
+    false
   );
 });
 
@@ -78,7 +85,7 @@ test("hasChainedEdits detects a chain", () => {
       { find: "foo", replace: "bar" },
       { find: "bar", replace: "baz" },
     ]),
-    true,
+    true
   );
 });
 
@@ -88,7 +95,7 @@ test("hasChainedEdits passes independent edits", () => {
       { find: "foo", replace: "bar" },
       { find: "baz", replace: "qux" },
     ]),
-    false,
+    false
   );
 });
 
@@ -98,7 +105,7 @@ test("hasChainedEdits: empty replace never chains", () => {
       { find: "foo", replace: "" },
       { find: "", replace: "bar" },
     ]),
-    false,
+    false
   );
 });
 
@@ -136,7 +143,7 @@ test("applyTable finds the table when selection and body report it separately", 
       makeContext({
         selectionTables: [makeTable(values)],
         bodyTables: [makeTable(values)],
-      }),
+      })
     );
   const mgr = createProposalMgr({
     target: { kind: "table", sig: SIG_2X2 },
@@ -165,7 +172,7 @@ test("applyTable still refuses when two distinct tables share the content", asyn
             ["c", "d"],
           ]),
         ],
-      }),
+      })
     );
   const mgr = createProposalMgr({
     target: { kind: "table", sig: SIG_2X2 },
@@ -176,7 +183,7 @@ test("applyTable still refuses when two distinct tables share the content", asyn
       mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], {
         markRed: false,
       }),
-    /Không còn tìm thấy bảng/,
+    /Không còn tìm thấy bảng/
   );
 });
 
@@ -187,8 +194,7 @@ test("applyTable falls back to the selection for a table the body does not list"
     ["a", "b"],
     ["c", "d"],
   ];
-  const runWord = (fn) =>
-    fn(makeContext({ selectionTables: [makeTable(values)], bodyTables: [] }));
+  const runWord = (fn) => fn(makeContext({ selectionTables: [makeTable(values)], bodyTables: [] }));
   const mgr = createProposalMgr({
     target: { kind: "table", sig: SIG_2X2 },
     runWord,
@@ -210,7 +216,7 @@ test("applyTable rejects when no table matches the target sig", async () => {
       mgr.applyTable([{ cell: "A1", value: "x", old: "a" }], {
         markRed: false,
       }),
-    /Không còn tìm thấy bảng/,
+    /Không còn tìm thấy bảng/
   );
 });
 
@@ -226,19 +232,18 @@ test("applyFulldocEdits rejects chained edits", async () => {
           { find: "foo", replace: "bar" },
           { find: "bar", replace: "baz" },
         ],
-        { markRed: false },
+        { markRed: false }
       ),
-    /chồng chéo/,
+    /chồng chéo/
   );
 });
 
 test("applyFulldocEdits counts skipped edits with no match", async () => {
   const runWord = (fn) => fn(makeContext({ searchItems: [] }));
   const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
-  const result = await mgr.applyFulldocEdits(
-    [{ find: "missing", replace: "x" }],
-    { markRed: false },
-  );
+  const result = await mgr.applyFulldocEdits([{ find: "missing", replace: "x" }], {
+    markRed: false,
+  });
   assert.equal(result.applied, 0);
   assert.equal(result.skipped, 1);
 });
@@ -248,10 +253,7 @@ test("applyFulldocEdits applies a matching edit", async () => {
   const searchItem = { insertText: () => inserted };
   const runWord = (fn) => fn(makeContext({ searchItems: [searchItem] }));
   const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
-  const result = await mgr.applyFulldocEdits(
-    [{ find: "old", replace: "new" }],
-    { markRed: false },
-  );
+  const result = await mgr.applyFulldocEdits([{ find: "old", replace: "new" }], { markRed: false });
   assert.equal(result.applied, 1);
   assert.equal(result.skipped, 0);
 });
@@ -268,12 +270,9 @@ test("applyFulldocEdits counts passages rewritten, not edits attempted", async (
   ];
   const runWord = (fn) => fn(makeContext({ searchItems }));
   const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
-  const result = await mgr.applyFulldocEdits(
-    [{ find: "old", replace: "new" }],
-    {
-      markRed: false,
-    },
-  );
+  const result = await mgr.applyFulldocEdits([{ find: "old", replace: "new" }], {
+    markRed: false,
+  });
   assert.equal(result.applied, 1, "one edit ran");
   assert.equal(result.replaced, 3, "three passages were rewritten");
 });
@@ -281,12 +280,9 @@ test("applyFulldocEdits counts passages rewritten, not edits attempted", async (
 test("applyFulldocEdits reports zero replacements when nothing matched", async () => {
   const runWord = (fn) => fn(makeContext({ searchItems: [] }));
   const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
-  const result = await mgr.applyFulldocEdits(
-    [{ find: "missing", replace: "x" }],
-    {
-      markRed: false,
-    },
-  );
+  const result = await mgr.applyFulldocEdits([{ find: "missing", replace: "x" }], {
+    markRed: false,
+  });
   assert.equal(result.replaced, 0);
 });
 
@@ -305,10 +301,180 @@ test("applyFulldocEdits skips edits longer than MAX_SEARCH_LEN", async () => {
   const runWord = (fn) => fn(makeContext());
   const mgr = createProposalMgr({ target: { kind: "fulldoc" }, runWord });
   const longFind = "x".repeat(300);
-  const result = await mgr.applyFulldocEdits(
-    [{ find: longFind, replace: "y" }],
-    { markRed: false },
-  );
+  const result = await mgr.applyFulldocEdits([{ find: longFind, replace: "y" }], {
+    markRed: false,
+  });
   assert.equal(result.applied, 0);
   assert.equal(result.skipped, 1);
+});
+
+// ---- applyText (Pin/bookmark staleness) -----------------------------------
+// BUG-05: this was 0% covered. Three branches decide where the replacement
+// goes: the bookmark still holds the captured passage (write through it), the
+// bookmark is stale but the passage is unique (search fallback), or the
+// passage is too long to search AND the bookmark no longer matches (hard
+// refuse). Plus the older-host path where bookmark APIs don't exist.
+
+function withBookmarks() {
+  globalThis.Office = { context: { requirements: { isSetSupported: () => true } } };
+  return () => {
+    delete globalThis.Office;
+  };
+}
+
+test("applyText writes through the bookmark when it still holds the captured passage", async () => {
+  const cleanup = withBookmarks();
+  try {
+    let insertArgs = null;
+    let rePinned = false;
+    const runWord = (fn) =>
+      fn(
+        makeContext({
+          bookmarkText: "pinned passage",
+          onBookmarkInsert: (next, mode, ins) => {
+            insertArgs = [next, mode];
+            ins.insertBookmark = () => {
+              rePinned = true;
+            };
+          },
+        })
+      );
+    const mgr = createProposalMgr({
+      target: { kind: "text", text: "pinned passage" },
+      runWord,
+    });
+    const result = await mgr.applyText("replacement", { markRed: false });
+    assert.equal(result.applied, 1);
+    assert.deepEqual(insertArgs, ["replacement", "Replace"]);
+    assert.equal(rePinned, true, "the inserted text is re-pinned for a follow-up rewrite");
+  } finally {
+    cleanup();
+  }
+});
+
+test("applyText falls back to a unique search when the bookmark no longer matches", async () => {
+  const cleanup = withBookmarks();
+  try {
+    let searchHit = null;
+    const runWord = (fn) =>
+      fn(
+        makeContext({
+          bookmarkText: "some other passage",
+          searchItems: [
+            {
+              insertText: (next, mode) => {
+                searchHit = [next, mode];
+                // canUseBookmark is true, so applyText re-pins the result —
+                // the inserted range must carry insertBookmark.
+                return { font: {}, insertBookmark: () => {} };
+              },
+            },
+          ],
+        })
+      );
+    const mgr = createProposalMgr({
+      target: { kind: "text", text: "pinned passage" },
+      runWord,
+    });
+    const result = await mgr.applyText("replacement", { markRed: false });
+    assert.equal(result.applied, 1);
+    assert.deepEqual(searchHit, ["replacement", "Replace"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("applyText refuses when the captured text is too long and the bookmark no longer matches", async () => {
+  const cleanup = withBookmarks();
+  try {
+    const longText = "x".repeat(300); // > MAX_SEARCH_LEN (255)
+    const runWord = (fn) =>
+      fn(
+        makeContext({
+          bookmarkText: "short stale text",
+        })
+      );
+    const mgr = createProposalMgr({ target: { kind: "text", text: longText }, runWord });
+    await assert.rejects(
+      () => mgr.applyText("replacement", { markRed: false }),
+      /không còn được ghim/
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("applyText refuses when the fallback search is ambiguous", async () => {
+  const cleanup = withBookmarks();
+  try {
+    const runWord = (fn) =>
+      fn(
+        makeContext({
+          bookmarkText: "stale",
+          searchItems: [],
+        })
+      );
+    const mgr = createProposalMgr({
+      target: { kind: "text", text: "pinned passage" },
+      runWord,
+    });
+    await assert.rejects(
+      () => mgr.applyText("replacement", { markRed: false }),
+      /xác định duy nhất/
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("applyText marks the replacement red through the bookmark when requested", async () => {
+  const cleanup = withBookmarks();
+  try {
+    const inserted = { font: {} };
+    const runWord = (fn) =>
+      fn(
+        makeContext({
+          bookmarkText: "pinned passage",
+          onBookmarkInsert: (_next, _mode, ins) => {
+            ins.font = inserted.font;
+          },
+        })
+      );
+    const mgr = createProposalMgr({
+      target: { kind: "text", text: "pinned passage" },
+      runWord,
+    });
+    await mgr.applyText("replacement", { markRed: true });
+    assert.equal(inserted.font.color, "#FF0000");
+  } finally {
+    cleanup();
+  }
+});
+
+// Older Office hosts lack WordApi 1.4 bookmark APIs; applyText must skip
+// straight to the search fallback rather than throw.
+test("applyText falls back to search on hosts without bookmark APIs", async () => {
+  // Office undefined → supportsBookmarks() returns false.
+  delete globalThis.Office;
+  let searchHit = null;
+  const runWord = (fn) =>
+    fn(
+      makeContext({
+        searchItems: [
+          {
+            insertText: (next, mode) => {
+              searchHit = [next, mode];
+              return { font: {}, insertBookmark: () => {} };
+            },
+          },
+        ],
+      })
+    );
+  const mgr = createProposalMgr({
+    target: { kind: "text", text: "pinned passage" },
+    runWord,
+  });
+  const result = await mgr.applyText("replacement", { markRed: true });
+  assert.equal(result.applied, 1);
+  assert.deepEqual(searchHit, ["replacement", "Replace"]);
 });

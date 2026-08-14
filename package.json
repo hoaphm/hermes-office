@@ -18,8 +18,6 @@
   "files": [
     "scripts/",
     "shared/",
-    "word/src/shared/hermes.js",
-    "excel/src/shared/hermes.js",
     "config.example.json",
     "word/manifest.xml",
     "excel/manifest.xml",

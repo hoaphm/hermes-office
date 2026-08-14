@@ -65,16 +65,14 @@ Office.onReady().then(() => {
         state: "pinned",
       });
     }
-    if (extra && extra.snapshot)
-      chips.push({ label: "Snapshot", value: extra.snapshot });
+    if (extra && extra.snapshot) chips.push({ label: "Snapshot", value: extra.snapshot });
     if (extra && extra.willTruncate)
       chips.push({
         label: "⚠ Cắt bớt",
         value: extra.willTruncate,
         state: "warn",
       });
-    if (!chips.length)
-      chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
+    if (!chips.length) chips.push({ label: "Sẵn sàng", value: "", state: "idle" });
     mountContextBar(contextHost, chips);
   }
   refreshContextBar();
@@ -106,10 +104,7 @@ Office.onReady().then(() => {
             const flat = t.values
               .map((row, ri) => {
                 const cells = row
-                  .map(
-                    (cell, ci) =>
-                      `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`,
-                  )
+                  .map((cell, ci) => `  [${columnIndexToLetters(ci)}${ri + 1}] ${cell}`)
                   .join("\n");
                 return `Row ${ri + 1}:\n${cells}`;
               })
@@ -194,18 +189,16 @@ ${data.text}`;
       }
 
       if (selectionData.type === "multi-table") {
-        addMsg(
-          "bot",
-          "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.",
-          { tone: "warn" },
-        );
+        addMsg("bot", "Đang chọn nhiều bảng. Hãy chọn một bảng duy nhất rồi hỏi lại Hermes.", {
+          tone: "warn",
+        });
         setStatus("Cần chọn một bảng.", "warn");
         return;
       }
       if (selectionData.type === "empty") {
         addMsg(
           "bot",
-          "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý.",
+          "Tài liệu trống hoặc không đọc được. Hãy chọn một đoạn văn bản, hoặc gõ nội dung cần xử lý."
         );
         setStatus("Không có văn bản (doc trống / chưa sync xong). Thử lại.");
         return;
@@ -214,10 +207,7 @@ ${data.text}`;
       // Bound full-document prompts.
       const displayData = { ...selectionData };
       let fullDocTruncated = false;
-      if (
-        displayData.type === "fulldoc" &&
-        displayData.text.length > MAX_FULLDOC_CHARS
-      ) {
+      if (displayData.type === "fulldoc" && displayData.text.length > MAX_FULLDOC_CHARS) {
         displayData.text = displayData.text.slice(0, MAX_FULLDOC_CHARS);
         fullDocTruncated = true;
       }
@@ -229,10 +219,7 @@ ${data.text}`;
             ? `${selectionData.text.length} ký tự được chọn`
             : "Đã chọn bảng";
       setStatus(
-        statusText +
-          (fullDocTruncated
-            ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu`
-            : ""),
+        statusText + (fullDocTruncated ? ` — đã giới hạn ${MAX_FULLDOC_CHARS} ký tự đầu` : "")
       );
       if (fullDocTruncated) {
         refreshContextBar({
@@ -276,11 +263,7 @@ ${data.text}`;
             type: "table",
             target,
             changes: tableChanges.map((change) => {
-              const pos = cellRefToPosition(
-                change.cell,
-                table.rowCount,
-                table.columnCount,
-              );
+              const pos = cellRefToPosition(change.cell, table.rowCount, table.columnCount);
               return {
                 ...change,
                 old: pos ? table.values[pos.row][pos.col] : undefined,
@@ -301,9 +284,7 @@ ${data.text}`;
         }
       } else if (selectionData.type === "text") {
         const passage = stripWrappingFence(reply);
-        assertReviewableActions([
-          { type: "replace", find: target.text, replace: passage },
-        ]); // reject oversized before creating the Proposal
+        assertReviewableActions([{ type: "replace", find: target.text, replace: passage }]); // reject oversized before creating the Proposal
         lastProposal = { type: "text", target, text: passage };
         renderProposalCard(preview, {
           title: "Đề xuất chỉnh sửa đoạn đã chọn",

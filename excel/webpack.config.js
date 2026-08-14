@@ -7,8 +7,14 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 
 const urlProd = "https://localhost:8643/excel/";
 // String.replace() with a string pattern only substitutes the FIRST match —
-// the manifest has a dozen dev URLs, so this must be a global regex.
-const urlDevPattern = /https:\/\/localhost:3000\//g;
+// the manifest has a dozen dev URLs, so this must be a global regex. Matches
+// with or without a trailing slash: resource URLs carry a path, but the
+// <AppDomain> trust entry is a bare `https://localhost:3000`, and a pattern
+// that demanded the slash let that one survive into production, widening
+// AppDomain trust. The bare form is rewritten to the Gateway origin (no path);
+// the pathed form to the add-in's base.
+const urlDevPattern = /https:\/\/localhost:3000\/?/g;
+const urlProdOrigin = "https://localhost:8643";
 
 /* global require, module, process */
 
@@ -88,7 +94,14 @@ module.exports = async (env, options) => {
               if (dev) {
                 return content;
               } else {
-                return content.toString().replace(urlDevPattern, urlProd);
+                return content
+                  .toString()
+                  // The source manifest lists BOTH AppDomains (dev :3000 and the
+                  // Gateway origin :8643, which is the same in prod). Rewriting
+                  // the dev one to the origin would duplicate the existing entry,
+                  // so drop the dev-only line instead.
+                  .replace(/\n\s*<AppDomain>\s*https:\/\/localhost:3000\s*<\/AppDomain>/g, "")
+                  .replace(urlDevPattern, (m) => (m.endsWith("/") ? urlProd : urlProdOrigin));
               }
             },
           },

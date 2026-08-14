@@ -1,9 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  MAX_ACTIONS,
-  assertReviewableActions,
-} from "../../../shared/proposal-card.js";
+import { MAX_ACTIONS, assertReviewableActions } from "../../../shared/proposal-card.js";
 import { userErrorMessage } from "../../../shared/failures.js";
 
 // The Word reviewability gate. taskpane.js itself cannot be unit-tested in
@@ -28,7 +25,7 @@ test("assertReviewableActions accepts exactly the reviewable limit", () => {
 test("assertReviewableActions rejects one past the limit with the UI-safe message", () => {
   assert.throws(
     () => assertReviewableActions(Array(101).fill({})),
-    /Đề xuất có quá nhiều thay đổi để xem xét an toàn/,
+    /Đề xuất có quá nhiều thay đổi để xem xét an toàn/
   );
 });
 
@@ -64,28 +61,21 @@ test("userErrorMessage falls back to String(err) when there is no message", () =
 
 test("local task-pane errors are preserved verbatim", () => {
   assert.equal(
-    userErrorMessage(
-      new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn"),
-    ),
-    "Đề xuất có quá nhiều thay đổi để xem xét an toàn",
+    userErrorMessage(new Error("Đề xuất có quá nhiều thay đổi để xem xét an toàn")),
+    "Đề xuất có quá nhiều thay đổi để xem xét an toàn"
   );
   assert.equal(
     userErrorMessage(
       new Error(
-        "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
-      ),
+        "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại."
+      )
     ),
-    "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại.",
+    "Không còn tìm thấy bảng của đề xuất này (bảng đã bị sửa hoặc xoá). Hãy chọn lại bảng rồi hỏi lại."
   );
   assert.equal(
-    userErrorMessage(
-      new Error("Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes."),
-    ),
-    "Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.",
+    userErrorMessage(new Error("Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes.")),
+    "Bảng đã thay đổi sau khi tạo đề xuất. Hãy hỏi lại Hermes."
   );
   // Local document-read stage is not a provider failure.
-  assert.equal(
-    userErrorMessage(new Error("[stage:read-doc] boom")),
-    "[stage:read-doc] boom",
-  );
+  assert.equal(userErrorMessage(new Error("[stage:read-doc] boom")), "[stage:read-doc] boom");
 });

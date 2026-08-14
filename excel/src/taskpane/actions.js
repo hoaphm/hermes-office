@@ -12,7 +12,12 @@ export { MAX_ACTIONS };
 // otherwise a poisoned cell could get an AI-proposed value silently applied as
 // a live formula (e.g. WEBSERVICE-based exfiltration).
 export function literalCellValue(v) {
-  return typeof v === "string" && /^[=+\-@]/.test(v) ? "'" + v : v;
+  // A leading space/tab/newline before the trigger still evaluates as a
+  // formula when the value is written through Range.values — Excel trims
+  // whitespace before formula detection (so do Sheets/LibreOffice/CSV), so a
+  // poisoned cell round-tripped into the prompt could smuggle " =WEBSERVICE()"
+  // past a first-character-only test. Match after optional leading whitespace.
+  return typeof v === "string" && /^\s*[=+\-@]/.test(v) ? "'" + v : v;
 }
 
 export function literalizeGrid(values) {

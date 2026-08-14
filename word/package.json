@@ -15,6 +15,7 @@
     "build": "webpack --mode production",
     "lint": "office-addin-lint check",
     "lint:fix": "office-addin-lint fix --files \"src/**/*.js\"",
+    "prettier": "office-addin-lint prettier",
     "start": "office-addin-debugging start manifest.xml",
     "stop": "office-addin-debugging stop manifest.xml"
   },
@@ -25,7 +26,9 @@
     "html-webpack-plugin": "^5.6.0",
     "office-addin-debugging": "^6.0.3",
     "office-addin-lint": "^3.0.3",
-    "webpack": "^5.90.3",
+    "office-addin-prettier-config": "^2.0.1",
+    "webpack": "^5.95.0",
     "webpack-cli": "^5.1.4"
-  }
+  },
+  "prettier": "office-addin-prettier-config"
 }
