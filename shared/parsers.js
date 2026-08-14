@@ -163,11 +163,12 @@ export function chartType(t) {
 }
 
 // Cap replayed conversation turns so a long session doesn't grow the request
-// payload without limit — both task panes enforce this with the same policy
-// (MAX_HISTORY_MESSAGES) but different array shapes: Excel keeps a standing
-// system message at index 0 and trims in place; Word has no standing system
-// message and reassigns its `messages` variable each turn.
-//
+// payload without limit — both task panes enforce this same policy but with
+// different array shapes: Excel keeps a standing system message at index 0 and
+// trims in place; Word has no standing system message and reassigns its
+// `messages` variable each turn.
+export const MAX_HISTORY_MESSAGES = 20;
+
 // @param {object[]} history
 // @param {number} max turns to keep (excluding the system message when keepSystem)
 // @param {{keepSystem?: boolean}} [opts] keepSystem: never drop index 0, cap

@@ -5,7 +5,7 @@
 // machines). All Apply logic lives in proposal-mgr.js (immutable target). This
 // file wires DOM events to those modules and renders results. No Word.run here.
 
-import { askHermes, checkHops } from "../shared/hermes.js";
+import { askHermes, checkHops } from "../../../shared/hermes.js";
 import {
   appendMessage,
   appendTypingIndicator,
@@ -23,11 +23,10 @@ import {
   parseEdits as parseWordEdits,
   parseTableChanges as parseWordTableChanges,
   trimHistory,
+  MAX_HISTORY_MESSAGES,
 } from "../../../shared/parsers.js";
 import { createSelectionMgr, MAX_FULLDOC_CHARS } from "./selection-mgr.js";
 import { createProposalMgr, cellRefToPosition } from "./proposal-mgr.js";
-
-const MAX_HISTORY_MESSAGES = 20;
 
 Office.onReady().then(() => {
   const log = document.getElementById("log");

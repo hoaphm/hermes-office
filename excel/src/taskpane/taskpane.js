@@ -1,5 +1,5 @@
 /* global Office, Excel, document, window, console */
-import { askHermes, checkHops } from "../shared/hermes";
+import { askHermes, checkHops } from "../../../shared/hermes.js";
 // Pure helpers deduped with the Word taskpane via the repo-root shared/
 // folder (no npm workspace between the two add-ins) — see shared/parsers.js.
 import {
@@ -8,6 +8,7 @@ import {
   resolveRange,
   chartType,
   trimHistory,
+  MAX_HISTORY_MESSAGES,
 } from "../../../shared/parsers.js";
 // Reply parsing, action descriptions and cell-value literalisation live in a
 // pure module so they can be tested without Office.js — see actions.test.js.
@@ -44,10 +45,6 @@ const MAX_COLS = 100;
 // Belt-and-suspenders byte cap on top of the row/col caps, in case a sheet
 // is dense (long strings) rather than just tall/wide.
 const MAX_SNAPSHOT_BYTES = 200000;
-// Cap on replayed conversation turns (excluding the system message at index
-// 0). Each turn can carry a full sheet snapshot, so an unbounded history grew
-// the request payload without limit across a long session.
-const MAX_HISTORY_MESSAGES = 20;
 
 const SYSTEM = `You are Hermes, embedded in an Excel task pane. Chat naturally and concisely.
 

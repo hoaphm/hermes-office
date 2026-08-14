@@ -195,7 +195,6 @@ async function main() {
     configPath,
     JSON.stringify(
       {
-        name: new URL(provider).host,
         model,
         customFunctions: previous.customFunctions === true,
       },

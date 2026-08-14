@@ -5,7 +5,7 @@ there is readable by any local process (`curl https://localhost:8643/config.json
 and can be carried off the machine and spent anywhere. Since ADR-0001 makes the
 Local Gateway mandatory anyway, the key is instead written into the Caddyfile —
 which is git-ignored and never served — and Caddy attaches it to each forwarded
-request. `config.json` is reduced to `{name, model}` and holds no secret at all.
+request. `config.json` is reduced to `{model, customFunctions}` and holds no secret at all.
 
 ## Consequences
 

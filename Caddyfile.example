@@ -32,7 +32,7 @@ https://localhost:8643 {
         file_server
     }
 
-    # Serve {name, model} to the task panes. Holds no secret.
+    # Serve {model, customFunctions} to the task panes. Holds no secret.
     handle /config.json {
         root * .
         file_server

@@ -826,18 +826,6 @@ body::after {
   box-shadow: 0 4px 14px -6px var(--accent-glow);
 }
 
-.ds-card-foot {
-  padding: 10px var(--sp-4);
-  border-top: 1px solid var(--line-2);
-  display: flex;
-  gap: 8px;
-  background: var(--soft);
-}
-
-.ds-card-foot .ds-btn-primary {
-  flex: 1 1 auto;
-}
-
 /* Preview wrappers (Word: .ds-preview on #preview; Excel: same class). */
 .ds-preview,
 #preview {

@@ -1,5 +1,4 @@
 {
-  "name": "api.openai.com",
   "model": "gpt-4o-mini",
   "customFunctions": false
 }

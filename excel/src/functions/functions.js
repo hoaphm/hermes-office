@@ -8,7 +8,7 @@
 // document can never turn the gate on for itself. Off by default: opening an
 // untrusted workbook must not be enough to spend your quota or ship its
 // contents to your Provider. See CONTEXT.md and the README.
-import { askHermes, customFunctionsEnabled } from "../shared/hermes";
+import { askHermes, customFunctionsEnabled } from "../../../shared/hermes.js";
 
 const DISABLED_MESSAGE =
   'Hàm =HERMES.* đang tắt. Thêm "customFunctions": true vào config.json rồi tải lại Excel để bật.';

@@ -1,4 +1,3 @@
-const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 
@@ -9,19 +8,12 @@ const urlProd = "https://localhost:8643/word/";
 // the manifest has a dozen dev URLs, so this must be a global regex.
 const urlDevPattern = /https:\/\/localhost:3000\//g;
 
-async function getHttpsOptions() {
-  const httpsOptions = await devCerts.getHttpsServerOptions();
-  return { ca: httpsOptions.ca, key: httpsOptions.key, cert: httpsOptions.cert };
-}
-
-module.exports = async (env, options) => {
+module.exports = (env, options) => {
   const dev = options.mode === "development";
-  const config = {
+  return {
     devtool: "source-map",
     entry: {
-      polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
       taskpane: ["./src/taskpane/taskpane.js", "./src/taskpane/taskpane.html"],
-      commands: "./src/commands/commands.js",
     },
     output: {
       clean: true,
@@ -34,11 +26,6 @@ module.exports = async (env, options) => {
     },
     module: {
       rules: [
-        {
-          test: /\.js$/,
-          exclude: /node_modules/,
-          use: { loader: "babel-loader" },
-        },
         {
           test: /\.html$/,
           exclude: /node_modules/,
@@ -64,7 +51,7 @@ module.exports = async (env, options) => {
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
-        chunks: ["polyfill", "taskpane"],
+        chunks: ["taskpane"],
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -90,21 +77,4 @@ module.exports = async (env, options) => {
       }),
     ],
   };
-
-  if (dev) {
-    config.devServer = {
-      static: { directory: process.cwd() },
-      https: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
-      port: process.env.npm_package_config_dev_server_port || 3000,
-      proxy: [
-        {
-          context: ["/v1"],
-          target: "https://localhost:8643",
-          secure: false,
-        },
-      ],
-    };
-  }
-
-  return config;
 };
